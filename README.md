@@ -1,47 +1,89 @@
 # Douglas
 
-**Douglas** is a developer lifecycle companion that automates an AI-assisted build-test-review-iterate loop for your projects. It provides a configurable pipeline that can generate code, run linters/tests, and assist in code reviews, minimizing CI time and manual effort.
+Douglas is a developer lifecycle companion that automates an AI‑assisted build, test, review, and iterate loop.
+It is provider‑agnostic, config‑first, and can bootstrap new repos that include Douglas alongside your app.
+
+> Status: Douglas is not yet published on PyPI. Install from source as shown below.
+
+## Install from source
+
+```bash
+# Clone your repo and enter it
+git clone https://github.com/dickymoore/Douglas
+cd douglas
+
+# Create a virtualenv and activate it
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+# Editable install with dev tools
+pip install -e .[dev]
+
+# Optional: set up pre-commit hooks
+pre-commit install
+```
+
+### Run the CLI
+
+If you installed with `pip install -e .`, you should have the `douglas` command:
+
+```bash
+douglas --help
+douglas check
+douglas init --project myapp --non-interactive
+douglas run
+```
+
+If you prefer not to install, run it directly:
+
+```bash
+python cli.py --help
+```
+
+Or via `pipx` from the repo root:
+
+```bash
+pipx install .
+douglas --help
+```
 
 ## Features
 
-- **AI-assisted code generation:** Integrate LLMs (e.g., OpenAI, Anthropic) to help generate code based on project tasks and prompts.
-- **Configurable workflow:** Define a customizable sequence of steps (plan, generate, lint, test, review, commit, pull-request, etc.) in `douglas.yaml`.
-- **Provider-agnostic design:** Swap out LLM providers or tooling with minimal changes via adapter interfaces.
-- **Templates and bootstrap:** Quickly scaffold new projects with Douglas built-in using `douglas init`.
-- **Local-first CI strategy:** Use pre-commit hooks, lint checks, and incremental testing to catch issues before pushing, saving CI minutes.
+- AI‑assisted code generation through a provider interface
+- Configurable workflow defined in `douglas.yaml` (plan, generate, lint, typecheck, test, review, commit, pr)
+- Provider‑agnostic design with pluggable adapters
+- Templates and bootstrap via `douglas init`
+- Local‑first CI strategy with pre‑commit and incremental checks
 
 ## Quickstart
 
-1. **Install Douglas**  
-   ```sh
-   pip install douglas
-   ```
+1) Initialize a new project:
 
-2. **Initialize a new project**  
-   ```sh
-   douglas init --project myapp
-   cd myapp
-   ```
+```bash
+douglas init --project myapp
+cd myapp
+```
 
-3. **Run the AI loop**  
-   ```sh
-   douglas run
-   ```
-   This will execute the loop steps defined in `douglas.yaml`.
+2) Run the AI loop:
 
-4. **Commit and push changes**  
-   By default, Douglas will create commits and pull requests automatically based on loop outcomes.
+```bash
+douglas run
+```
+
+This executes the steps defined in `douglas.yaml`.
 
 ## Commands
 
-- `douglas init`: Scaffold a new repository with Douglas configuration and templates.  
-- `douglas run`: Execute the AI-assisted development loop as per configuration.  
-- `douglas check`: Validate the current setup and configuration.  
-- `douglas doctor`: Diagnose environment, tool availability, and dependencies.  
+- `douglas init`  Scaffold a new repository with Douglas configuration and templates
+- `douglas run`   Execute the AI‑assisted development loop according to your config
+- `douglas check` Validate configuration and environment
+- `douglas doctor` Diagnose environment and tool availability
 
 ## Configuration (`douglas.yaml`)
 
-Douglas uses a YAML configuration file (`douglas.yaml`) for project settings. Example sections:
+Example:
 
 ```yaml
 project:
@@ -77,8 +119,6 @@ paths:
   tests: "tests"
 ```
 
-For detailed docs, see CONTRIBUTING.md and the `docs/` directory.
-
 ## Architecture Overview
 
 ```
@@ -89,3 +129,8 @@ Douglas CLI
            └── integrations (git, GitHub)
    └── templates (project/file scaffolding)
 ```
+
+## Notes on distribution
+
+- When you are ready to publish to PyPI, update the README to add `pip install douglas` (or your chosen package name) and verify the console script entry point in `pyproject.toml`.
+- If the name `douglas` is not available on PyPI, choose an alternative package name and update `pyproject.toml` and docs accordingly.
