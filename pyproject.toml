@@ -3,22 +3,17 @@ name = "douglas"
 version = "0.1.0"
 description = "AI-assisted development loop orchestrator"
 readme = "README.md"
-authors = [
-    { name = "Douglas Contributors", email = "contributors@example.com" }
-]
-license = { file = "LICENSE" }
-dependencies = [
-    "typer",
-    "pyyaml",
-]
+requires-python = ">=3.9"
+authors = [{ name = "Douglas Contributors" }]
+license = { text = "MIT" }
+dependencies = ["typer>=0.9", "pyyaml>=6.0"]
+
+[project.scripts]
+douglas = "cli:app"
+
 [project.optional-dependencies]
-dev = [
-    "pytest",
-    "ruff",
-    "black",
-    "isort",
-    "mypy"
-]
+dev = ["pytest", "ruff", "black", "isort", "mypy"]
+
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
