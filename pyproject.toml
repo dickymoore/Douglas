@@ -3,9 +3,9 @@ name = "douglas"
 version = "0.1.0"
 description = "AI-assisted development loop orchestrator"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.9"
-authors = [{ name = "Douglas Contributors" }]
-license = { text = "MIT" }
+authors = [{ name = "Dicky Moore" }]
 dependencies = ["typer>=0.9", "pyyaml>=6.0"]
 
 [project.scripts]
@@ -17,3 +17,6 @@ dev = ["pytest", "ruff", "black", "isort", "mypy"]
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["douglas*"]
