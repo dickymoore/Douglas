@@ -1,0 +1,11 @@
+project:
+  name: "hello-douglas"
+  description: "Example project managed by Douglas"
+  license: "MIT"
+  language: "python"
+ai:
+  provider: "openai"
+  model: "gpt-4"
+  prompt: "system_prompt.md"
+loop:
+  steps: ["lint", "typecheck", "test"]

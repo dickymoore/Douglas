@@ -1,0 +1,18 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info
+dist/
+build/
+venv/
+.env
+credentials.yaml
+
+# VS Code
+.vscode/
+
+# Mac OS
+.DS_Store
+
+# Docker
+*.log

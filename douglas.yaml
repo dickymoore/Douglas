@@ -1,0 +1,31 @@
+project:
+  name: "example"
+  description: "An example project using Douglas"
+  license: "MIT"
+  language: "python"
+ai:
+  provider: "openai"
+  model: "gpt-4"
+  prompt: "system_prompt.md"
+loop:
+  steps:
+    - generate
+    - lint
+    - typecheck
+    - test
+    - review
+    - commit
+    - pr
+  exit_conditions:
+    - "tests_pass"
+vcs:
+  default_branch: "main"
+  conventional_commits: true
+ci:
+  local_runner: true
+  github_actions: true
+  cache:
+    pip: true
+paths:
+  app_src: "src"
+  tests: "tests"

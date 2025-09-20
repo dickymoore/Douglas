@@ -1,0 +1,24 @@
+[project]
+name = "douglas"
+version = "0.1.0"
+description = "AI-assisted development loop orchestrator"
+readme = "README.md"
+authors = [
+    { name = "Douglas Contributors", email = "contributors@example.com" }
+]
+license = { file = "LICENSE" }
+dependencies = [
+    "typer",
+    "pyyaml",
+]
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "black",
+    "isort",
+    "mypy"
+]
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
