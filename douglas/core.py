@@ -17,7 +17,7 @@ from douglas.controls import run_state as run_state_control
 from douglas.integrations.github import GitHub
 from douglas.providers.llm_provider import LLMProvider
 from douglas.journal import questions as question_journal
-from douglas.pipelines import demo as demopipe, lint, typecheck, test as testpipe
+from douglas.pipelines import demo as demopipe, lint, retro as retropipe, typecheck, test as testpipe
 from douglas.sprint_manager import CadenceDecision, SprintManager
 
 
@@ -477,6 +477,44 @@ class Douglas:
         if step_name == 'review':
             print("Running review step...")
             self.review()
+            return StepExecutionResult(True, True, override_event, already_recorded)
+
+        if step_name == 'retro':
+            print("Running retro step...")
+            retro_context = {
+                'project_root': self.project_root,
+                'config': self.config,
+                'sprint_manager': self.sprint_manager,
+                'llm': self.lm_provider,
+                'loop_outcomes': dict(self._loop_outcomes),
+            }
+            try:
+                retro_result = retropipe.run_retro(retro_context)
+            except Exception as exc:
+                message = f"Retro step failed: {exc}"
+                print(message)
+                return StepExecutionResult(
+                    True,
+                    False,
+                    None,
+                    already_recorded,
+                    failure_details=message,
+                )
+
+            self._write_history_event(
+                'retro_completed',
+                {
+                    'sprint': retro_result.sprint_folder,
+                    'generated_at': retro_result.generated_at,
+                    'instructions': {
+                        role: str(path)
+                        for role, path in retro_result.instructions.items()
+                    },
+                    'backlog_entries': [
+                        entry.get('id') for entry in retro_result.backlog_entries
+                    ],
+                },
+            )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'demo':

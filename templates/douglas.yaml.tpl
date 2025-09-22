@@ -39,6 +39,9 @@ loop:
     - name: review
       role: Developer
       activity: code_review
+    - name: retro
+      role: ScrumMaster
+      activity: retrospective
     - name: demo
       role: ProductOwner
       activity: sprint_review
@@ -61,6 +64,11 @@ demo:
     - test_results
     - limitations
     - next_steps
+retro:
+  outputs:
+    - role_instructions
+    - pre_feature_backlog
+  backlog_file: "ai-inbox/backlog/pre-features.yaml"
 paths:
   app_src: "src"
   tests: "tests"
