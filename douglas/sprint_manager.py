@@ -61,6 +61,9 @@ def should_run_step(
             return CadenceDecision(True, "Once cadence has not yet executed this sprint.")
         return CadenceDecision(False, "Once cadence already satisfied for this sprint.")
 
+    if frequency in {"on_demand", "on-demand"}:
+        return CadenceDecision(False, "On-demand cadence requires manual trigger.")
+
     if frequency == "per_sprint":
         if sprint_length <= 0:
             return CadenceDecision(True, "Sprint length unspecified; executing per-sprint step.", "sprint")

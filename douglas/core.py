@@ -12,6 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
+from douglas.cadence_manager import CadenceManager
 from douglas.integrations.github import GitHub
 from douglas.providers.llm_provider import LLMProvider
 from douglas.pipelines import lint, typecheck, test as testpipe
@@ -42,6 +43,7 @@ class Douglas:
         self.project_name = self.config.get('project', {}).get('name', '')
         self.lm_provider = self.create_llm_provider()
         self.sprint_manager = SprintManager(sprint_length_days=self._resolve_sprint_length())
+        self.cadence_manager = CadenceManager(self.config.get('cadence'), self.sprint_manager)
         self.push_policy = self._resolve_push_policy()
         self.history_path = self.project_root / 'ai-inbox' / 'history.jsonl'
         self._loop_outcomes: Dict[str, Optional[bool]] = {}
@@ -110,8 +112,7 @@ class Douglas:
                 break
 
             step_name = step_config['name']
-            cadence = step_config.get('cadence')
-            decision = self.sprint_manager.should_run_step(step_name, cadence)
+            decision = self.cadence_manager.evaluate_step(step_name, step_config)
             if not decision.should_run:
                 print(f"Skipping {step_name} step: {decision.reason}")
                 self._record_step_outcome(step_name, executed=False, success=False)

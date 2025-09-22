@@ -7,32 +7,49 @@ ai:
   provider: "openai"
   model: "gpt-4"
   prompt: "system_prompt.md"
+cadence:
+  Developer:
+    development: daily
+    quality_checks: daily
+    code_review: per_feature
+    retrospective: per_sprint
+  Tester:
+    test_cases: daily
+    regression: per_sprint
+  ProductOwner:
+    backlog_refinement: per_sprint
+    sprint_review: per_sprint
+  ScrumMaster:
+    daily_standup: daily
+    retrospective: per_sprint
+  DevOps:
+    release: per_feature
 loop:
   steps:
     - name: generate
-      cadence:
-        frequency: daily
+      role: Developer
+      activity: development
     - name: lint
-      cadence:
-        frequency: daily
+      role: Developer
+      activity: quality_checks
     - name: typecheck
-      cadence:
-        frequency: daily
+      role: Developer
+      activity: quality_checks
     - name: test
-      cadence:
-        frequency: daily
+      role: Tester
+      activity: test_cases
     - name: review
-      cadence:
-        frequency: per_feature
+      role: Developer
+      activity: code_review
     - name: commit
-      cadence:
-        frequency: daily
+      role: Developer
+      activity: development
     - name: push
-      cadence:
-        frequency: per_feature
+      role: DevOps
+      activity: release
     - name: pr
-      cadence:
-        frequency: per_feature
+      role: Developer
+      activity: code_review
   exit_conditions:
     - "ci_pass"
 push_policy: per_feature
