@@ -16,7 +16,7 @@ from douglas.cadence_manager import CadenceManager
 from douglas.controls import run_state as run_state_control
 from douglas.integrations.github import GitHub
 from douglas.providers.llm_provider import LLMProvider
-from douglas.journal import questions as question_journal
+from douglas.journal import agent_io, questions as question_journal
 from douglas.pipelines import demo as demopipe, lint, retro as retropipe, typecheck, test as testpipe
 from douglas.sprint_manager import CadenceDecision, SprintManager
 
@@ -385,6 +385,68 @@ class Douglas:
             return ""
         return str(role).strip().lower().replace(" ", "_")
 
+    def _record_agent_summary(
+        self,
+        role: Optional[str],
+        step_name: str,
+        summary_text: str,
+        details: Optional[Any] = None,
+        *,
+        handoff_ids: Optional[Iterable[str]] = None,
+        title: Optional[str] = None,
+    ) -> None:
+        if not role:
+            return
+
+        sprint_index = getattr(self.sprint_manager, "sprint_index", 1)
+        meta: Dict[str, Any] = {
+            "project_root": self.project_root,
+            "config": self.config,
+            "step": step_name,
+            "details": details or {},
+            "handoff_ids": handoff_ids or [],
+        }
+        if title:
+            meta["title"] = title
+
+        try:
+            agent_io.append_summary(role, sprint_index, summary_text, meta)
+        except Exception as exc:  # pragma: no cover - logging best effort
+            print(
+                f"Warning: Unable to record summary for role '{role}' during {step_name}: {exc}"
+            )
+
+    def _raise_agent_handoff(
+        self,
+        from_role: Optional[str],
+        to_role: Optional[str],
+        topic: str,
+        context: Any,
+        *,
+        blocking: bool = True,
+    ) -> Optional[str]:
+        if not from_role or not to_role:
+            return None
+
+        sprint_index = getattr(self.sprint_manager, "sprint_index", 1)
+        meta: Dict[str, Any] = {"project_root": self.project_root, "config": self.config}
+
+        try:
+            return agent_io.append_handoff(
+                from_role,
+                to_role,
+                sprint_index,
+                topic,
+                context,
+                blocking,
+                meta,
+            )
+        except Exception as exc:  # pragma: no cover - logging best effort
+            print(
+                f"Warning: Unable to record handoff from '{from_role}' to '{to_role}': {exc}"
+            )
+            return None
+
     def _record_step_outcome(self, step_name: str, executed: bool, success: bool) -> None:
         if executed:
             self._loop_outcomes[step_name] = bool(success)
@@ -461,17 +523,71 @@ class Douglas:
             except SystemExit as exc:
                 if exc.code not in (None, 0):
                     print("Lint step failed; aborting remaining steps.")
+                    exit_code = exc.code if exc.code is not None else 1
+                    self._record_agent_summary(
+                        'Developer',
+                        'lint',
+                        f'Lint checks failed with exit code {exit_code}.',
+                        {'status': 'failed', 'exit_code': exit_code},
+                    )
                 raise
+            self._record_agent_summary(
+                'Developer',
+                'lint',
+                'Executed configured lint checks successfully.',
+                {'status': 'passed'},
+            )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'typecheck':
             print("Running typecheck step...")
-            typecheck.run_typecheck()
+            try:
+                typecheck.run_typecheck()
+            except SystemExit as exc:
+                exit_code = exc.code if exc.code is not None else 1
+                self._record_agent_summary(
+                    'Developer',
+                    'typecheck',
+                    f'Type checks failed with exit code {exit_code}.',
+                    {'status': 'failed', 'exit_code': exit_code},
+                )
+                raise
+            self._record_agent_summary(
+                'Developer',
+                'typecheck',
+                'Static type checks completed successfully.',
+                {'status': 'passed'},
+            )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'test':
             print("Running test step...")
-            testpipe.run_tests()
+            try:
+                testpipe.run_tests()
+            except SystemExit as exc:
+                exit_code = exc.code if exc.code is not None else 1
+                message = f'Test suite failed with exit code {exit_code}.'
+                context = (
+                    f'pytest -q exited with status {exit_code}. '
+                    'Review failing tests and coordinate with development.'
+                )
+                handoff_id = self._raise_agent_handoff(
+                    'Tester', 'Developer', 'Investigate failing tests', context, blocking=True
+                )
+                self._record_agent_summary(
+                    'Tester',
+                    'test',
+                    message,
+                    {'status': 'failed', 'exit_code': exit_code},
+                    handoff_ids=[handoff_id] if handoff_id else None,
+                )
+                raise
+            self._record_agent_summary(
+                'Tester',
+                'test',
+                'Executed automated tests using pytest.',
+                {'status': 'passed'},
+            )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'review':
@@ -493,6 +609,12 @@ class Douglas:
             except Exception as exc:
                 message = f"Retro step failed: {exc}"
                 print(message)
+                self._record_agent_summary(
+                    'ScrumMaster',
+                    'retro',
+                    message,
+                    {'status': 'failed', 'error': str(exc)},
+                )
                 return StepExecutionResult(
                     True,
                     False,
@@ -515,6 +637,17 @@ class Douglas:
                     ],
                 },
             )
+            details = {
+                'status': 'completed',
+                'instructions_generated': len(retro_result.instructions or {}),
+                'backlog_entries': len(retro_result.backlog_entries or []),
+            }
+            self._record_agent_summary(
+                'ScrumMaster',
+                'retro',
+                'Completed sprint retrospective and published follow-up actions.',
+                details,
+            )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'demo':
@@ -531,6 +664,12 @@ class Douglas:
             except Exception as exc:
                 message = f"Demo generation failed: {exc}"
                 print(message)
+                self._record_agent_summary(
+                    'ProductOwner',
+                    'demo',
+                    message,
+                    {'status': 'failed', 'error': str(exc)},
+                )
                 return StepExecutionResult(
                     True,
                     False,
@@ -540,13 +679,46 @@ class Douglas:
                 )
 
             self._write_history_event('demo_pack_generated', metadata.as_event_payload())
+            try:
+                relative_path = metadata.output_path.relative_to(self.project_root)
+                output_display = str(relative_path)
+            except ValueError:
+                output_display = str(metadata.output_path)
+            details = {
+                'status': 'completed',
+                'output': output_display,
+                'format': metadata.format,
+                'sprint_folder': metadata.sprint_folder,
+            }
+            self._record_agent_summary(
+                'ProductOwner',
+                'demo',
+                'Generated sprint demo pack for the current sprint.',
+                details,
+            )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'commit':
             print("Running commit step...")
-            committed, _ = self._commit_if_needed()
+            committed, commit_message = self._commit_if_needed()
             if committed:
                 override_event = cadence_decision.event_type
+                summary = (
+                    f"Committed changes with message: {commit_message}"
+                    if commit_message
+                    else "Committed staged changes."
+                )
+                details = {'status': 'committed'}
+                if commit_message:
+                    details['message'] = commit_message
+                self._record_agent_summary('Developer', 'commit', summary, details)
+            else:
+                self._record_agent_summary(
+                    'Developer',
+                    'commit',
+                    'No staged changes available for committing.',
+                    {'status': 'skipped'},
+                )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'push':
@@ -573,6 +745,12 @@ class Douglas:
             if not local_checks_ok:
                 print("Local checks failed; aborting push.")
                 self._handle_step_failure('local_checks', 'Local checks failed before push.', local_logs)
+                self._record_agent_summary(
+                    'DevOps',
+                    'push',
+                    'Push blocked because required local checks failed.',
+                    {'status': 'failed', 'reason': 'local_checks'},
+                )
                 return StepExecutionResult(
                     True,
                     False,
@@ -595,10 +773,30 @@ class Douglas:
                         'details': push_logs,
                     },
                 )
+                self._record_agent_summary(
+                    'DevOps',
+                    'push',
+                    'Pushed committed changes to the remote repository.',
+                    {
+                        'status': 'completed',
+                        'policy': self.push_policy,
+                        'event_type': decision.event_type,
+                    },
+                )
                 return StepExecutionResult(True, True, decision.event_type, already_recorded)
 
             print("Push step failed; leaving commits local.")
             self._handle_step_failure('push', 'git push failed.', push_logs)
+            self._record_agent_summary(
+                'DevOps',
+                'push',
+                'Push to remote failed; commits remain local.',
+                {
+                    'status': 'failed',
+                    'reason': 'push',
+                    'policy': self.push_policy,
+                },
+            )
             return StepExecutionResult(
                 True,
                 False,
@@ -639,10 +837,30 @@ class Douglas:
                     },
                 )
                 self._monitor_ci()
+                self._record_agent_summary(
+                    'Developer',
+                    'pr',
+                    'Opened a pull request following the configured policy.',
+                    {
+                        'status': 'completed',
+                        'policy': self.push_policy,
+                        'event_type': decision.event_type,
+                    },
+                )
                 return StepExecutionResult(True, True, decision.event_type, already_recorded)
 
             print("Failed to create pull request; leaving for manual follow-up.")
             self._handle_step_failure('pr', 'Pull request creation failed.', pr_metadata)
+            self._record_agent_summary(
+                'Developer',
+                'pr',
+                'Attempt to open a pull request failed and needs follow-up.',
+                {
+                    'status': 'failed',
+                    'policy': self.push_policy,
+                    'event_type': decision.event_type,
+                },
+            )
             return StepExecutionResult(
                 True,
                 False,
@@ -1171,6 +1389,12 @@ class Douglas:
         prompt = self._build_generation_prompt()
         if not prompt:
             print("No prompt constructed for generation step; skipping.")
+            self._record_agent_summary(
+                'Developer',
+                'generate',
+                'Generation step skipped because no prompt was constructed.',
+                {'status': 'skipped'},
+            )
             return
 
         print("Invoking language model to propose code changes...")
@@ -1178,17 +1402,38 @@ class Douglas:
             llm_output = self.lm_provider.generate_code(prompt)
         except Exception as exc:
             print(f"Error while invoking language model: {exc}")
+            self._record_agent_summary(
+                'Developer',
+                'generate',
+                'Generation step aborted due to language model error.',
+                {'status': 'error', 'error': str(exc)},
+            )
             return
 
         if not llm_output or not llm_output.strip():
             print("Language model returned an empty response; no changes applied.")
+            self._record_agent_summary(
+                'Developer',
+                'generate',
+                'Language model returned no actionable changes during generation.',
+                {'status': 'no_changes'},
+            )
             return
 
         applied_paths = self._apply_llm_output(llm_output)
         if applied_paths:
             self._stage_changes(applied_paths)
+            details = {
+                'status': 'applied',
+                'files_changed': sorted(applied_paths),
+            }
+            summary = f"Applied generated updates to {len(applied_paths)} file(s)."
         else:
             print("Model output did not yield any actionable changes.")
+            details = {'status': 'no_changes'}
+            summary = 'Model output did not yield any actionable changes.'
+
+        self._record_agent_summary('Developer', 'generate', summary, details)
 
     def review(self):
         self._run_agent_with_state('Developer', 'review', self._review_impl)
@@ -1197,11 +1442,23 @@ class Douglas:
         diff_text = self._get_pending_diff()
         if not diff_text:
             print("No code changes detected for review; skipping.")
+            self._record_agent_summary(
+                'Developer',
+                'review',
+                'Review step skipped because there were no pending changes.',
+                {'status': 'skipped'},
+            )
             return
 
         prompt = self._build_review_prompt(diff_text)
         if not prompt:
             print("Unable to construct review prompt; skipping review step.")
+            self._record_agent_summary(
+                'Developer',
+                'review',
+                'Review prompt construction failed; no feedback recorded.',
+                {'status': 'skipped'},
+            )
             return
 
         print("Requesting language model review of recent changes...")
@@ -1209,13 +1466,36 @@ class Douglas:
             feedback = self.lm_provider.generate_code(prompt)
         except Exception as exc:
             print(f"Error while invoking language model for review: {exc}")
+            self._record_agent_summary(
+                'Developer',
+                'review',
+                'Review step aborted due to language model error.',
+                {'status': 'error', 'error': str(exc)},
+            )
             return
 
         if not feedback or not feedback.strip():
             print("Language model returned empty review feedback.")
+            self._record_agent_summary(
+                'Developer',
+                'review',
+                'Language model returned empty feedback during review.',
+                {'status': 'no_feedback'},
+            )
             return
 
         self._record_review_feedback(feedback)
+        cleaned = feedback.strip()
+        excerpt = cleaned if len(cleaned) <= 240 else f"{cleaned[:237]}..."
+        details = {'status': 'recorded'}
+        if excerpt:
+            details['feedback_excerpt'] = excerpt
+        self._record_agent_summary(
+            'Developer',
+            'review',
+            'Recorded language model review feedback for pending changes.',
+            details,
+        )
 
     def _build_generation_prompt(self):
         sections = []

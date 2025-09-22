@@ -70,6 +70,7 @@ retro:
     - pre_feature_backlog
   backlog_file: "ai-inbox/backlog/pre-features.yaml"
 paths:
+  inbox_dir: "ai-inbox"
   app_src: "src"
   tests: "tests"
   demos_dir: "demos"
@@ -78,6 +79,15 @@ paths:
   questions_archive_dir: "user-portal/questions-archive"
   user_portal_dir: "user-portal"
   run_state_file: "user-portal/run-state.txt"
+agents:
+  roles:
+    - "developer"
+    - "tester"
+    - "product_owner"
+    - "scrum_master"
+    - "designer"
+    - "ba"
+    - "devops"
 run_state:
   allowed:
     - "CONTINUE"
