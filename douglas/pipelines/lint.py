@@ -23,7 +23,7 @@ def run_lint(additional_commands: Optional[Iterable[Sequence[str]]] = None) -> N
     commands: list[Sequence[str]] = [
         ['ruff', '.'],
         ['black', '--check', '.'],
-        ['isort', '--check-only', '.'],
+        ['isort', '--check', '.'],
     ]
 
     if additional_commands:
