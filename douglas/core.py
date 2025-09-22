@@ -36,7 +36,9 @@ class Douglas:
         'per_epic',
         'per_sprint',
     }
-    MAX_LOG_EXCERPT_LENGTH = 4000
+  
+    MAX_LOG_EXCERPT_LENGTH = 4000 # Maximum number of characters kept from the end of CI logs and bug report excerpts.
+    
     def __init__(self, config_path='douglas.yaml'):
         self.config_path = Path(config_path)
         self.config = self.load_config(self.config_path)
@@ -68,7 +70,9 @@ class Douglas:
 
     def _resolve_sprint_length(self) -> Optional[int]:
         sprint_config = self.config.get('sprint', {}) or {}
-        raw_length = sprint_config.get('length_days', sprint_config.get('length'))
+        if 'length' in sprint_config:
+            print("Warning: 'length' is deprecated. Please use 'length_days' in the sprint configuration.")
+        raw_length = sprint_config.get('length_days')
         if raw_length is None:
             return None
         try:
@@ -1397,11 +1401,24 @@ class Douglas:
         review_path = self.project_root / 'douglas_review.md'
         try:
             review_path.parent.mkdir(parents=True, exist_ok=True)
-            new_file = not review_path.exists()
-            with review_path.open('a', encoding='utf-8') as fh:
-                if new_file:
-                    fh.write("# Douglas Review Feedback\n\n")
-                fh.write("## Latest Feedback\n\n")
+            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+            header = f"## Latest Feedback ({now})\n\n"
+            if review_path.exists():
+                with review_path.open('r', encoding='utf-8') as fh:
+                    content = fh.read()
+                # Remove previous "## Latest Feedback" section and its content
+                # Keep everything before the section, and everything after the next "## " header (if any)
+                pattern = r"(## Latest Feedback.*?)(?=^## |\Z)"  # non-greedy up to next section or end
+                content_new = re.sub(pattern, "", content, flags=re.DOTALL | re.MULTILINE)
+                # Ensure file starts with the main header
+                if not content_new.lstrip().startswith("# Douglas Review Feedback"):
+                    content_new = "# Douglas Review Feedback\n\n" + content_new.lstrip()
+            else:
+                content_new = "# Douglas Review Feedback\n\n"
+            # Write new content with latest feedback at the top
+            with review_path.open('w', encoding='utf-8') as fh:
+                fh.write(content_new)
+                fh.write(header)
                 fh.write(cleaned)
                 fh.write("\n\n")
             print(f"Saved review feedback to {review_path.relative_to(self.project_root)}.")
@@ -1525,7 +1542,12 @@ class Douglas:
         diff_text = result.stdout
         max_length = 20000
         if len(diff_text) > max_length:
-            truncated = diff_text[:max_length]
+            # Truncate at the last complete line before max_length
+            last_newline = diff_text.rfind('\n', 0, max_length)
+            if last_newline != -1:
+                truncated = diff_text[:last_newline]
+            else:
+                truncated = diff_text[:max_length]
             truncated += "\n... (diff truncated)"
             return truncated
         return diff_text
