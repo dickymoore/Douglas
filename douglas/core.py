@@ -3,20 +3,31 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from douglas.integrations.github import GitHub
 from douglas.providers.llm_provider import LLMProvider
 from douglas.pipelines import lint, typecheck, test as testpipe
+from douglas.sprint_manager import CadenceDecision, SprintManager
 
 class Douglas:
     DEFAULT_COMMIT_MESSAGE = "chore: automated commit"
+    SUPPORTED_PUSH_POLICIES = {
+        'per_feature',
+        'per_bug',
+        'per_epic',
+        'per_sprint',
+    }
     def __init__(self, config_path='douglas.yaml'):
         self.config_path = Path(config_path)
         self.config = self.load_config(self.config_path)
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get('project', {}).get('name', '')
         self.lm_provider = self.create_llm_provider()
+        self.sprint_manager = SprintManager(sprint_length_days=self._resolve_sprint_length())
+        self.push_policy = self._resolve_push_policy()
 
     def load_config(self, path):
         try:
@@ -34,35 +45,265 @@ class Douglas:
             print(f"LLM provider '{provider_name}' not supported.")
             sys.exit(1)
 
+    def _resolve_sprint_length(self) -> Optional[int]:
+        sprint_config = self.config.get('sprint', {}) or {}
+        raw_length = sprint_config.get('length_days', sprint_config.get('length'))
+        if raw_length is None:
+            return None
+        try:
+            length = int(raw_length)
+        except (TypeError, ValueError):
+            print(f"Warning: Invalid sprint length '{raw_length}'; falling back to default cadence.")
+            return None
+        if length <= 0:
+            print("Warning: Sprint length must be positive; defaulting to 10 days.")
+            return None
+        return length
+
+    def _resolve_push_policy(self) -> str:
+        candidate = self.config.get('push_policy')
+        if not candidate:
+            candidate = self.config.get('vcs', {}).get('push_policy')
+        if not candidate:
+            return 'per_feature'
+
+        normalized = str(candidate).strip().lower()
+        if normalized not in self.SUPPORTED_PUSH_POLICIES:
+            print(f"Warning: Unsupported push_policy '{candidate}'; defaulting to per_feature.")
+            return 'per_feature'
+        return normalized
+
     def run_loop(self):
         print("Starting Douglas AI development loop...")
-        steps = self.config.get('loop', {}).get('steps', [])
-        for step in steps:
-            if step == 'generate':
-                print("Running generate step...")
-                self.generate()
+        print(
+            f"Sprint status: {self.sprint_manager.describe_day()} (iteration {self.sprint_manager.current_iteration})"
+        )
+        print(f"Push/PR policy: {self.push_policy}")
+
+        steps = self._normalize_step_configs(self.config.get('loop', {}).get('steps', []))
+        executed_steps: List[str] = []
+        commit_step_present = any(step['name'] == 'commit' for step in steps)
+
+        for step_config in steps:
+            if self._exit_conditions_met(executed_steps):
+                print("Exit condition satisfied; ending loop early.")
+                break
+
+            step_name = step_config['name']
+            cadence = step_config.get('cadence')
+            decision = self.sprint_manager.should_run_step(step_name, cadence)
+            if not decision.should_run:
+                print(f"Skipping {step_name} step: {decision.reason}")
                 continue
-            elif step == 'lint':
-                print("Running lint step...")
-                try:
-                    lint.run_lint()
-                except SystemExit as exc:
-                    if exc.code not in (None, 0):
-                        print("Lint step failed; aborting remaining steps.")
-                    raise
-            elif step == 'typecheck':
-                print("Running typecheck step...")
-                typecheck.run_typecheck()
-            elif step == 'test':
-                print("Running test step...")
-                testpipe.run_tests()
-            elif step == 'review':
-                print("Running review step...")
-                self.review()
-            else:
-                print(f"Unknown step '{step}'; skipping.")
-        self._commit_if_needed()
+
+            executed, override_event, already_recorded = self._execute_step(step_name, step_config, decision)
+            if executed:
+                event_type = override_event if override_event is not None else decision.event_type
+                if not already_recorded:
+                    self.sprint_manager.record_step_execution(step_name, event_type)
+                executed_steps.append(step_name)
+                if self._exit_conditions_met(executed_steps):
+                    print("Exit condition satisfied; ending loop early.")
+                    break
+
+        if not commit_step_present:
+            committed, _ = self._commit_if_needed()
+            if committed:
+                self.sprint_manager.record_step_execution('commit', None)
+
+        self.sprint_manager.finish_iteration()
         print("Douglas loop completed.")
+
+    def _normalize_step_configs(self, raw_steps: List[Any]) -> List[Dict[str, Any]]:
+        normalized: List[Dict[str, Any]] = []
+        for entry in raw_steps or []:
+            if isinstance(entry, str):
+                normalized.append({'name': entry, 'cadence': None})
+                continue
+
+            if isinstance(entry, dict):
+                step_entry: Dict[str, Any] = dict(entry)
+                name = step_entry.get('name') or step_entry.get('step')
+                if not name and len(step_entry) == 1:
+                    sole_key = next(iter(step_entry))
+                    value = step_entry[sole_key]
+                    if isinstance(value, dict):
+                        name = sole_key
+                        merged = dict(value)
+                        merged['name'] = name
+                        step_entry = merged
+                if not name:
+                    print("Warning: Skipping loop step without a name.")
+                    continue
+                step_entry['name'] = str(name)
+                normalized.append(step_entry)
+                continue
+
+            print(f"Warning: Unsupported loop step configuration '{entry}'; skipping.")
+
+        return normalized
+
+    def _exit_conditions_met(self, executed_steps: List[str]) -> bool:
+        exit_conditions = self.config.get('loop', {}).get('exit_conditions') or []
+        for condition in exit_conditions:
+            if condition == 'sprint_demo_complete' and self.sprint_manager.has_step_run('demo'):
+                return True
+        return False
+
+    def _execute_step(
+        self,
+        step_name: str,
+        step_config: Dict[str, Any],
+        cadence_decision: CadenceDecision,
+    ) -> Tuple[bool, Optional[str], bool]:
+        override_event: Optional[str] = None
+        already_recorded = False
+
+        if step_name == 'generate':
+            print("Running generate step...")
+            self.generate()
+            return True, override_event, already_recorded
+
+        if step_name == 'lint':
+            print("Running lint step...")
+            try:
+                lint.run_lint()
+            except SystemExit as exc:
+                if exc.code not in (None, 0):
+                    print("Lint step failed; aborting remaining steps.")
+                raise
+            return True, override_event, already_recorded
+
+        if step_name == 'typecheck':
+            print("Running typecheck step...")
+            typecheck.run_typecheck()
+            return True, override_event, already_recorded
+
+        if step_name == 'test':
+            print("Running test step...")
+            testpipe.run_tests()
+            return True, override_event, already_recorded
+
+        if step_name == 'review':
+            print("Running review step...")
+            self.review()
+            return True, override_event, already_recorded
+
+        if step_name == 'commit':
+            print("Running commit step...")
+            committed, _ = self._commit_if_needed()
+            if committed:
+                override_event = cadence_decision.event_type
+            return True, override_event, already_recorded
+
+        if step_name == 'push':
+            print("Running push step...")
+            decision = self.sprint_manager.should_run_push(self.push_policy)
+            if not decision.should_run:
+                print(f"Skipping push step: {decision.reason}")
+                return False, None, already_recorded
+            if not self._commits_ready_for_push(decision.event_type):
+                print("No commits ready for push; skipping push step.")
+                return False, None, already_recorded
+            if self._run_git_push():
+                print("Push completed according to policy.")
+                self.sprint_manager.record_push(decision.event_type, self.push_policy)
+                already_recorded = True
+                return True, decision.event_type, already_recorded
+            print("Push step failed; leaving commits local.")
+            return False, None, already_recorded
+
+        if step_name == 'pr':
+            print("Running pr step...")
+            decision = self.sprint_manager.should_open_pr(self.push_policy)
+            if not decision.should_run:
+                print(f"Skipping pr step: {decision.reason}")
+                return False, None, already_recorded
+            if not self._commits_ready_for_pr(decision.event_type):
+                print("No commits ready for PR; skipping pr step.")
+                return False, None, already_recorded
+            if self._open_pull_request():
+                print("Pull request created according to policy.")
+                self.sprint_manager.record_pr(decision.event_type, self.push_policy)
+                already_recorded = True
+                return True, decision.event_type, already_recorded
+            print("Failed to create pull request; leaving for manual follow-up.")
+            return False, None, already_recorded
+
+        print(f"Step '{step_name}' is not automated; remember to handle it manually when prompted.")
+        return True, cadence_decision.event_type, already_recorded
+
+    def _commits_ready_for_push(self, event_type: Optional[str]) -> bool:
+        if event_type in {'feature', 'bug', 'epic'}:
+            return True
+        return self.sprint_manager.commits_since_last_push > 0
+
+    def _commits_ready_for_pr(self, event_type: Optional[str]) -> bool:
+        if event_type in {'feature', 'bug', 'epic'}:
+            return True
+        return self.sprint_manager.commits_since_last_pr > 0
+
+    def _run_git_push(self) -> bool:
+        try:
+            result = subprocess.run(
+                ['git', 'push'],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            print(f"Warning: git not available to push changes: {exc}")
+            return False
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or result.stdout.strip()
+            if error_msg:
+                print(f"Warning: git push failed: {error_msg}")
+            else:
+                print("Warning: git push failed without diagnostics.")
+            return False
+
+        return True
+
+    def _open_pull_request(self) -> bool:
+        title, body = self._build_pr_content()
+        base_branch = self.config.get('vcs', {}).get('default_branch', 'main')
+        try:
+            GitHub.create_pull_request(title=title, body=body, base=base_branch)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"Warning: Unable to create pull request: {exc}")
+            return False
+        return True
+
+    def _build_pr_content(self) -> Tuple[str, str]:
+        subject, commit_body = self._get_latest_commit_summary()
+        if not subject:
+            subject = f"Sprint update for {self.project_name or 'project'}"
+
+        body_lines = [
+            f"Automated changes for {self.sprint_manager.describe_day()} (policy: {self.push_policy}).",
+        ]
+        if commit_body:
+            body_lines.append("\n## Latest commit details\n" + commit_body.strip())
+
+        return subject, "\n\n".join(body_lines)
+
+    def _get_latest_commit_summary(self) -> Tuple[str, str]:
+        try:
+            subject = subprocess.check_output(
+                ['git', 'log', '-1', '--pretty=%s'],
+                cwd=self.project_root,
+                text=True,
+            ).strip()
+            body = subprocess.check_output(
+                ['git', 'log', '-1', '--pretty=%b'],
+                cwd=self.project_root,
+                text=True,
+            ).strip()
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(f"Warning: Unable to collect latest commit summary: {exc}")
+            return "", ""
+        return subject, body
 
     def generate(self):
         prompt = self._build_generation_prompt()
@@ -573,18 +814,18 @@ class Douglas:
         except OSError as exc:
             print(f"Warning: Unable to save review feedback to {review_path}: {exc}")
 
-    def _commit_if_needed(self):
+    def _commit_if_needed(self) -> Tuple[bool, Optional[str]]:
         if not self._has_uncommitted_changes():
             print("No pending changes detected; skipping commit step.")
-            return
+            return False, None
 
         if not self._stage_all_changes():
-            return
+            return False, None
 
         staged_paths = self._get_staged_paths()
         if not staged_paths:
             print("No staged changes detected after adding; skipping commit step.")
-            return
+            return False, None
 
         commit_message = self._generate_commit_message()
         if not commit_message:
@@ -592,6 +833,10 @@ class Douglas:
 
         if self._run_git_commit(commit_message):
             print(f"Created commit: {commit_message}")
+            self.sprint_manager.record_commit(commit_message)
+            return True, commit_message
+
+        return False, None
 
     def _has_uncommitted_changes(self):
         try:

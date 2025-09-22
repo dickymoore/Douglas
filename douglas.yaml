@@ -9,15 +9,35 @@ ai:
   prompt: "system_prompt.md"
 loop:
   steps:
-    - generate
-    - lint
-    - typecheck
-    - test
-    - review
-    - commit
-    - pr
+    - name: generate
+      cadence:
+        frequency: daily
+    - name: lint
+      cadence:
+        frequency: daily
+    - name: typecheck
+      cadence:
+        frequency: daily
+    - name: test
+      cadence:
+        frequency: daily
+    - name: review
+      cadence:
+        frequency: per_feature
+    - name: commit
+      cadence:
+        frequency: daily
+    - name: push
+      cadence:
+        frequency: per_feature
+    - name: pr
+      cadence:
+        frequency: per_feature
   exit_conditions:
     - "tests_pass"
+push_policy: per_feature
+sprint:
+  length_days: 10
 vcs:
   default_branch: "main"
   conventional_commits: true
