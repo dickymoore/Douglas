@@ -25,7 +25,7 @@ def test_run_lint_executes_all_commands(monkeypatch):
     lint.run_lint(additional_commands=[['echo', 'ok']])
 
     expected_commands = [
-        ('ruff', '.'),
+        ('ruff', 'check', '.'),
         ('black', '--check', '.'),
         ('isort', '--check-only', '.'),
         ('echo', 'ok'),

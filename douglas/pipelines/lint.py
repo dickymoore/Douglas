@@ -21,7 +21,7 @@ def run_lint(additional_commands: Optional[Iterable[Sequence[str]]] = None) -> N
     """Execute lint commands and exit with a non-zero code when they fail."""
 
     commands: list[Sequence[str]] = [
-        ['ruff', '.'],
+        ['ruff', 'check', '.'],
         ['black', '--check', '.'],
         ['isort', '--check-only', '.'],
     ]
