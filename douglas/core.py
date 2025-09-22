@@ -8,14 +8,16 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
 from douglas.cadence_manager import CadenceManager
+from douglas.controls import run_state as run_state_control
 from douglas.integrations.github import GitHub
 from douglas.providers.llm_provider import LLMProvider
-from douglas.pipelines import lint, typecheck, test as testpipe
+from douglas.journal import questions as question_journal
+from douglas.pipelines import demo as demopipe, lint, typecheck, test as testpipe
 from douglas.sprint_manager import CadenceDecision, SprintManager
 
 
@@ -50,6 +52,11 @@ class Douglas:
         self.history_path = self.project_root / 'ai-inbox' / 'history.jsonl'
         self._loop_outcomes: Dict[str, Optional[bool]] = {}
         self._ci_status: Optional[str] = None
+        self._configured_steps: set[str] = set()
+        self._executed_step_names: set[str] = set()
+        self._blocking_questions_by_role: Dict[str, List[question_journal.Question]] = {}
+        self._run_state_path = self._resolve_run_state_path()
+        self._soft_stop_pending = False
 
     def load_config(self, path):
         try:
@@ -97,6 +104,25 @@ class Douglas:
             return 'per_feature'
         return normalized
 
+    def _resolve_run_state_path(self) -> Path:
+        paths_cfg = self.config.get('paths', {}) or {}
+
+        candidate = paths_cfg.get('run_state_file')
+        if candidate:
+            run_state_path = Path(candidate)
+            if not run_state_path.is_absolute():
+                run_state_path = self.project_root / run_state_path
+            return run_state_path
+
+        portal_dir = paths_cfg.get('user_portal_dir')
+        if portal_dir:
+            portal_path = Path(portal_dir)
+            if not portal_path.is_absolute():
+                portal_path = self.project_root / portal_path
+            return portal_path / 'run-state.txt'
+
+        return self.project_root / 'user-portal' / 'run-state.txt'
+
     def run_loop(self):
         print("Starting Douglas AI development loop...")
         print(
@@ -104,73 +130,97 @@ class Douglas:
         )
         print(f"Push/PR policy: {self.push_policy}")
 
-        steps = self._normalize_step_configs(self.config.get('loop', {}).get('steps', []))
-        executed_steps: List[str] = []
-        commit_step_present = any(step['name'] == 'commit' for step in steps)
-        self._loop_outcomes = {}
-        self._ci_status = None
+        self._soft_stop_pending = False
+        self._check_run_state(phase='loop_start', allow_soft_stop_exit=False)
 
-        for step_config in steps:
-            if self._exit_conditions_met(executed_steps):
-                print("Exit condition satisfied; ending loop early.")
-                break
+        error: Optional[BaseException] = None
+        try:
+            self._refresh_question_state()
 
-            step_name = step_config['name']
-            decision = self.cadence_manager.evaluate_step(step_name, step_config)
-            if not decision.should_run:
-                print(f"Skipping {step_name} step: {decision.reason}")
-                self._record_step_outcome(step_name, executed=False, success=False)
-                continue
+            steps = self._normalize_step_configs(self.config.get('loop', {}).get('steps', []))
+            executed_steps: List[str] = []
+            self._executed_step_names = set()
+            self._configured_steps = {str(step['name']).lower() for step in steps}
+            commit_step_present = 'commit' in self._configured_steps
+            self._loop_outcomes = {}
+            self._ci_status = None
 
-            try:
-                result = self._execute_step(step_name, step_config, decision)
-            except SystemExit as exc:
-                self._record_step_outcome(step_name, executed=True, success=False)
-                self._handle_step_failure(
-                    step_name,
-                    f"{step_name} step exited with status {exc.code}.",
-                    None,
-                )
-                raise
-            except Exception as exc:
-                self._record_step_outcome(step_name, executed=True, success=False)
-                self._handle_step_failure(
-                    step_name,
-                    f"{step_name} step raised an exception: {exc}",
-                    None,
-                )
-                raise
+            for step_config in steps:
+                if self._exit_conditions_met(executed_steps):
+                    print("Exit condition satisfied; ending loop early.")
+                    break
 
-            if result.executed:
-                event_type = (
-                    result.override_event
-                    if result.override_event is not None
-                    else decision.event_type
-                )
-                if not result.already_recorded:
-                    self.sprint_manager.record_step_execution(step_name, event_type)
-                executed_steps.append(step_name)
-                self._record_step_outcome(step_name, executed=True, success=result.success)
-                if not result.success and not result.failure_reported:
+                step_name = step_config['name']
+                decision = self.cadence_manager.evaluate_step(step_name, step_config)
+                if not decision.should_run:
+                    print(f"Skipping {step_name} step: {decision.reason}")
+                    self._record_step_outcome(step_name, executed=False, success=False)
+                    continue
+
+                role_for_step = self._resolve_step_role(step_name)
+                if self._should_defer_for_questions(role_for_step, step_name):
+                    self._record_step_outcome(step_name, executed=False, success=False)
+                    continue
+
+                try:
+                    result = self._execute_step(step_name, step_config, decision)
+                except SystemExit as exc:
+                    self._record_step_outcome(step_name, executed=True, success=False)
                     self._handle_step_failure(
                         step_name,
-                        result.failure_details or f"{step_name} step reported failure.",
+                        f"{step_name} step exited with status {exc.code}.",
                         None,
                     )
-            else:
-                self._record_step_outcome(step_name, executed=False, success=False)
+                    raise
+                except Exception as exc:
+                    self._record_step_outcome(step_name, executed=True, success=False)
+                    self._handle_step_failure(
+                        step_name,
+                        f"{step_name} step raised an exception: {exc}",
+                        None,
+                    )
+                    raise
 
-            if self._exit_conditions_met(executed_steps):
-                print("Exit condition satisfied; ending loop early.")
-                break
+                if result.executed:
+                    event_type = (
+                        result.override_event
+                        if result.override_event is not None
+                        else decision.event_type
+                    )
+                    if not result.already_recorded:
+                        self.sprint_manager.record_step_execution(step_name, event_type)
+                    self._executed_step_names.add(step_name.lower())
+                    executed_steps.append(step_name)
+                    self._record_step_outcome(step_name, executed=True, success=result.success)
+                    if not result.success and not result.failure_reported:
+                        self._handle_step_failure(
+                            step_name,
+                            result.failure_details or f"{step_name} step reported failure.",
+                            None,
+                        )
+                else:
+                    self._record_step_outcome(step_name, executed=False, success=False)
 
-        if not commit_step_present:
-            committed, _ = self._commit_if_needed()
-            if committed:
-                self.sprint_manager.record_step_execution('commit', None)
+                if self._exit_conditions_met(executed_steps):
+                    print("Exit condition satisfied; ending loop early.")
+                    break
 
-        self.sprint_manager.finish_iteration()
-        print("Douglas loop completed.")
+            if not commit_step_present:
+                committed, _ = self._commit_if_needed()
+                if committed:
+                    self.sprint_manager.record_step_execution('commit', None)
+
+            self.sprint_manager.finish_iteration()
+            print("Douglas loop completed.")
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            self._check_run_state(
+                phase='loop_end',
+                allow_soft_stop_exit=True,
+                enforce_exit=error is None,
+            )
 
     def _normalize_step_configs(self, raw_steps: List[Any]) -> List[Dict[str, Any]]:
         normalized: List[Dict[str, Any]] = []
@@ -200,6 +250,140 @@ class Douglas:
             print(f"Warning: Unsupported loop step configuration '{entry}'; skipping.")
 
         return normalized
+
+    def _check_run_state(
+        self,
+        *,
+        phase: str,
+        agent_label: Optional[str] = None,
+        allow_soft_stop_exit: bool,
+        enforce_exit: bool = True,
+    ) -> run_state_control.RunState:
+        descriptor = phase
+        if agent_label:
+            descriptor = f"{phase}:{agent_label}"
+
+        state = run_state_control.read_run_state(self._run_state_path)
+        print(f"Run state check ({descriptor}): {state.value}")
+
+        previously_pending = self._soft_stop_pending
+        if state is run_state_control.RunState.SOFT_STOP and not previously_pending:
+            print("Soft stop requested; will finish current sprint before exiting.")
+        if state is run_state_control.RunState.SOFT_STOP:
+            self._soft_stop_pending = True
+
+        should_exit = run_state_control.should_exit_now(
+            state,
+            {
+                'phase': phase,
+                'allow_soft_stop_exit': allow_soft_stop_exit,
+                'soft_stop_pending': self._soft_stop_pending,
+            },
+        )
+
+        if enforce_exit and should_exit:
+            if state is run_state_control.RunState.HARD_STOP:
+                print("Hard stop requested; aborting immediately.")
+                raise SystemExit(1)
+            print("Soft stop in effect; exiting after completing sprint.")
+            raise SystemExit(0)
+
+        return state
+
+    def _run_agent_with_state(
+        self,
+        agent_label: str,
+        step_name: str,
+        action: Callable[[], Any],
+    ) -> Any:
+        descriptor = f"{agent_label}:{step_name}"
+        self._check_run_state(
+            phase='agent_start',
+            agent_label=descriptor,
+            allow_soft_stop_exit=False,
+        )
+
+        error: Optional[BaseException] = None
+        try:
+            return action()
+        except BaseException as exc:  # pragma: no cover - propagate to caller
+            error = exc
+            raise
+        finally:
+            self._check_run_state(
+                phase='agent_end',
+                agent_label=descriptor,
+                allow_soft_stop_exit=False,
+                enforce_exit=error is None,
+            )
+
+    def _question_context(self, **overrides: Any) -> Dict[str, Any]:
+        context: Dict[str, Any] = {
+            'project_root': self.project_root,
+            'config': self.config,
+            'sprint': self.sprint_manager.sprint_index,
+        }
+        context.update(overrides)
+        return context
+
+    def _refresh_question_state(self) -> None:
+        try:
+            open_questions = question_journal.scan_for_answers(self._question_context())
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"Warning: Unable to scan for user questions: {exc}")
+            self._blocking_questions_by_role = {}
+            return
+
+        blocking: Dict[str, List[question_journal.Question]] = {}
+        for item in open_questions:
+            answer = (item.user_answer or "").strip()
+            if answer:
+                print(f"Processing user answer for {item.id}: {item.topic}")
+                item.agent_follow_up = self._format_question_follow_up(item)
+                try:
+                    question_journal.archive_question(item)
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    print(f"Warning: Failed to archive answered question {item.id}: {exc}")
+                continue
+
+            if item.blocking:
+                key = item.normalized_role()
+                blocking.setdefault(key, []).append(item)
+
+        self._blocking_questions_by_role = blocking
+
+    def _format_question_follow_up(self, question: question_journal.Question) -> str:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        answer = (question.user_answer or "").strip()
+        if answer:
+            trimmed = answer if len(answer) <= 280 else f"{answer[:277]}..."
+            return f"User response recorded on {timestamp}.\n\n{trimmed}"
+        return f"User response recorded on {timestamp}."
+
+    def _should_defer_for_questions(self, role: Optional[str], step_name: str) -> bool:
+        role_key = self._normalize_role_key(role)
+        blocking = list(self._blocking_questions_by_role.get(role_key, []))
+        blocking.extend(self._blocking_questions_by_role.get("", []))
+        if not blocking:
+            return False
+
+        identifiers = ", ".join(question.id for question in blocking)
+        print(
+            f"Skipping {step_name} step: awaiting user answer for question(s) {identifiers}."
+        )
+        return True
+
+    def _resolve_step_role(self, step_name: str) -> Optional[str]:
+        context = self.cadence_manager.last_context
+        if context and context.step_name == step_name:
+            return context.role
+        return None
+
+    @staticmethod
+    def _normalize_role_key(role: Optional[str]) -> str:
+        if role is None:
+            return ""
+        return str(role).strip().lower().replace(" ", "_")
 
     def _record_step_outcome(self, step_name: str, executed: bool, success: bool) -> None:
         if executed:
@@ -295,6 +479,31 @@ class Douglas:
             self.review()
             return StepExecutionResult(True, True, override_event, already_recorded)
 
+        if step_name == 'demo':
+            print("Running demo step...")
+            demo_context = {
+                'project_root': self.project_root,
+                'config': self.config,
+                'sprint_manager': self.sprint_manager,
+                'history_path': self.history_path,
+                'loop_outcomes': dict(self._loop_outcomes),
+            }
+            try:
+                metadata = demopipe.write_demo_pack(demo_context)
+            except Exception as exc:
+                message = f"Demo generation failed: {exc}"
+                print(message)
+                return StepExecutionResult(
+                    True,
+                    False,
+                    None,
+                    already_recorded,
+                    failure_details=message,
+                )
+
+            self._write_history_event('demo_pack_generated', metadata.as_event_payload())
+            return StepExecutionResult(True, True, override_event, already_recorded)
+
         if step_name == 'commit':
             print("Running commit step...")
             committed, _ = self._commit_if_needed()
@@ -304,6 +513,14 @@ class Douglas:
 
         if step_name == 'push':
             print("Running push step...")
+            if (
+                self.push_policy == 'per_sprint'
+                and 'demo' in self._configured_steps
+                and 'demo' not in self._executed_step_names
+            ):
+                print("Skipping push step: awaiting sprint demo before release.")
+                self._loop_outcomes['local_checks'] = None
+                return StepExecutionResult(False, False, None, already_recorded)
             decision = self.sprint_manager.should_run_push(self.push_policy)
             if not decision.should_run:
                 print(f"Skipping push step: {decision.reason}")
@@ -355,6 +572,13 @@ class Douglas:
 
         if step_name == 'pr':
             print("Running pr step...")
+            if (
+                self.push_policy == 'per_sprint'
+                and 'demo' in self._configured_steps
+                and 'demo' not in self._executed_step_names
+            ):
+                print("Skipping pr step: awaiting sprint demo before opening PR.")
+                return StepExecutionResult(False, False, None, already_recorded)
             decision = self.sprint_manager.should_open_pr(self.push_policy)
             if not decision.should_run:
                 print(f"Skipping pr step: {decision.reason}")
@@ -903,6 +1127,9 @@ class Douglas:
             pass
 
     def generate(self):
+        self._run_agent_with_state('Developer', 'generate', self._generate_impl)
+
+    def _generate_impl(self):
         prompt = self._build_generation_prompt()
         if not prompt:
             print("No prompt constructed for generation step; skipping.")
@@ -926,6 +1153,9 @@ class Douglas:
             print("Model output did not yield any actionable changes.")
 
     def review(self):
+        self._run_agent_with_state('Developer', 'review', self._review_impl)
+
+    def _review_impl(self):
         diff_text = self._get_pending_diff()
         if not diff_text:
             print("No code changes detected for review; skipping.")

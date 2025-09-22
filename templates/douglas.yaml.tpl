@@ -39,6 +39,9 @@ loop:
     - name: review
       role: Developer
       activity: code_review
+    - name: demo
+      role: ProductOwner
+      activity: sprint_review
     - name: commit
       role: Developer
       activity: development
@@ -48,3 +51,29 @@ loop:
     - name: pr
       role: Developer
       activity: code_review
+sprint:
+  length_days: 10
+demo:
+  format: "md"
+  include:
+    - implemented_features
+    - how_to_run
+    - test_results
+    - limitations
+    - next_steps
+paths:
+  app_src: "src"
+  tests: "tests"
+  demos_dir: "demos"
+  sprint_prefix: "sprint-"
+  questions_dir: "user-portal/questions"
+  questions_archive_dir: "user-portal/questions-archive"
+  user_portal_dir: "user-portal"
+  run_state_file: "user-portal/run-state.txt"
+run_state:
+  allowed:
+    - "CONTINUE"
+    - "SOFT_STOP"
+    - "HARD_STOP"
+qna:
+  filename_pattern: "sprint-{sprint}-{role}-{id}.md"
