@@ -34,7 +34,7 @@ loop:
       cadence:
         frequency: per_feature
   exit_conditions:
-    - "tests_pass"
+    - "ci_pass"
 push_policy: per_feature
 sprint:
   length_days: 10

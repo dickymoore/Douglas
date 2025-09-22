@@ -1,9 +1,14 @@
+import json
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import yaml
 
@@ -11,6 +16,16 @@ from douglas.integrations.github import GitHub
 from douglas.providers.llm_provider import LLMProvider
 from douglas.pipelines import lint, typecheck, test as testpipe
 from douglas.sprint_manager import CadenceDecision, SprintManager
+
+
+@dataclass
+class StepExecutionResult:
+    executed: bool
+    success: bool
+    override_event: Optional[str] = None
+    already_recorded: bool = False
+    failure_reported: bool = False
+    failure_details: Optional[str] = None
 
 class Douglas:
     DEFAULT_COMMIT_MESSAGE = "chore: automated commit"
@@ -28,6 +43,9 @@ class Douglas:
         self.lm_provider = self.create_llm_provider()
         self.sprint_manager = SprintManager(sprint_length_days=self._resolve_sprint_length())
         self.push_policy = self._resolve_push_policy()
+        self.history_path = self.project_root / 'ai-inbox' / 'history.jsonl'
+        self._loop_outcomes: Dict[str, Optional[bool]] = {}
+        self._ci_status: Optional[str] = None
 
     def load_config(self, path):
         try:
@@ -83,6 +101,8 @@ class Douglas:
         steps = self._normalize_step_configs(self.config.get('loop', {}).get('steps', []))
         executed_steps: List[str] = []
         commit_step_present = any(step['name'] == 'commit' for step in steps)
+        self._loop_outcomes = {}
+        self._ci_status = None
 
         for step_config in steps:
             if self._exit_conditions_met(executed_steps):
@@ -94,17 +114,50 @@ class Douglas:
             decision = self.sprint_manager.should_run_step(step_name, cadence)
             if not decision.should_run:
                 print(f"Skipping {step_name} step: {decision.reason}")
+                self._record_step_outcome(step_name, executed=False, success=False)
                 continue
 
-            executed, override_event, already_recorded = self._execute_step(step_name, step_config, decision)
-            if executed:
-                event_type = override_event if override_event is not None else decision.event_type
-                if not already_recorded:
+            try:
+                result = self._execute_step(step_name, step_config, decision)
+            except SystemExit as exc:
+                self._record_step_outcome(step_name, executed=True, success=False)
+                self._handle_step_failure(
+                    step_name,
+                    f"{step_name} step exited with status {exc.code}.",
+                    None,
+                )
+                raise
+            except Exception as exc:
+                self._record_step_outcome(step_name, executed=True, success=False)
+                self._handle_step_failure(
+                    step_name,
+                    f"{step_name} step raised an exception: {exc}",
+                    None,
+                )
+                raise
+
+            if result.executed:
+                event_type = (
+                    result.override_event
+                    if result.override_event is not None
+                    else decision.event_type
+                )
+                if not result.already_recorded:
                     self.sprint_manager.record_step_execution(step_name, event_type)
                 executed_steps.append(step_name)
-                if self._exit_conditions_met(executed_steps):
-                    print("Exit condition satisfied; ending loop early.")
-                    break
+                self._record_step_outcome(step_name, executed=True, success=result.success)
+                if not result.success and not result.failure_reported:
+                    self._handle_step_failure(
+                        step_name,
+                        result.failure_details or f"{step_name} step reported failure.",
+                        None,
+                    )
+            else:
+                self._record_step_outcome(step_name, executed=False, success=False)
+
+            if self._exit_conditions_met(executed_steps):
+                print("Exit condition satisfied; ending loop early.")
+                break
 
         if not commit_step_present:
             committed, _ = self._commit_if_needed()
@@ -143,10 +196,58 @@ class Douglas:
 
         return normalized
 
+    def _record_step_outcome(self, step_name: str, executed: bool, success: bool) -> None:
+        if executed:
+            self._loop_outcomes[step_name] = bool(success)
+        else:
+            self._loop_outcomes[step_name] = None
+
+    def _handle_step_failure(
+        self,
+        step_name: str,
+        message: str,
+        logs: Optional[str],
+    ) -> None:
+        summary = f"{step_name} step failed"
+        details: list[str] = []
+        if message:
+            details.append(message.strip())
+        if logs:
+            details.append(logs.strip())
+        combined_details = "\n\n".join(details)
+        bug_id = self._create_bug_ticket(
+            category=step_name,
+            summary=summary,
+            details=combined_details or summary,
+            log_excerpt=logs,
+        )
+        self._write_history_event(
+            'step_failure',
+            {
+                'step': step_name,
+                'message': message,
+                'bug_id': bug_id,
+            },
+        )
+
     def _exit_conditions_met(self, executed_steps: List[str]) -> bool:
         exit_conditions = self.config.get('loop', {}).get('exit_conditions') or []
         for condition in exit_conditions:
             if condition == 'sprint_demo_complete' and self.sprint_manager.has_step_run('demo'):
+                return True
+            if condition == 'tests_pass' and self._loop_outcomes.get('test') is True:
+                return True
+            if condition == 'lint_pass' and self._loop_outcomes.get('lint') is True:
+                return True
+            if condition == 'typecheck_pass' and self._loop_outcomes.get('typecheck') is True:
+                return True
+            if condition == 'local_checks_pass' and self._loop_outcomes.get('local_checks') is True:
+                return True
+            if condition == 'push_complete' and self._loop_outcomes.get('push') is True:
+                return True
+            if condition == 'pr_created' and self._loop_outcomes.get('pr') is True:
+                return True
+            if condition == 'ci_pass' and self._ci_status == 'success':
                 return True
         return False
 
@@ -155,14 +256,14 @@ class Douglas:
         step_name: str,
         step_config: Dict[str, Any],
         cadence_decision: CadenceDecision,
-    ) -> Tuple[bool, Optional[str], bool]:
+    ) -> StepExecutionResult:
         override_event: Optional[str] = None
         already_recorded = False
 
         if step_name == 'generate':
             print("Running generate step...")
             self.generate()
-            return True, override_event, already_recorded
+            return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'lint':
             print("Running lint step...")
@@ -172,66 +273,120 @@ class Douglas:
                 if exc.code not in (None, 0):
                     print("Lint step failed; aborting remaining steps.")
                 raise
-            return True, override_event, already_recorded
+            return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'typecheck':
             print("Running typecheck step...")
             typecheck.run_typecheck()
-            return True, override_event, already_recorded
+            return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'test':
             print("Running test step...")
             testpipe.run_tests()
-            return True, override_event, already_recorded
+            return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'review':
             print("Running review step...")
             self.review()
-            return True, override_event, already_recorded
+            return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'commit':
             print("Running commit step...")
             committed, _ = self._commit_if_needed()
             if committed:
                 override_event = cadence_decision.event_type
-            return True, override_event, already_recorded
+            return StepExecutionResult(True, True, override_event, already_recorded)
 
         if step_name == 'push':
             print("Running push step...")
             decision = self.sprint_manager.should_run_push(self.push_policy)
             if not decision.should_run:
                 print(f"Skipping push step: {decision.reason}")
-                return False, None, already_recorded
+                self._loop_outcomes['local_checks'] = None
+                return StepExecutionResult(False, False, None, already_recorded)
             if not self._commits_ready_for_push(decision.event_type):
                 print("No commits ready for push; skipping push step.")
-                return False, None, already_recorded
-            if self._run_git_push():
+                self._loop_outcomes['local_checks'] = None
+                return StepExecutionResult(False, False, None, already_recorded)
+
+            local_checks_ok, local_logs = self._run_local_checks()
+            if not local_checks_ok:
+                print("Local checks failed; aborting push.")
+                self._handle_step_failure('local_checks', 'Local checks failed before push.', local_logs)
+                return StepExecutionResult(
+                    True,
+                    False,
+                    None,
+                    already_recorded,
+                    failure_reported=True,
+                    failure_details='Local checks failed before push.',
+                )
+
+            success, push_logs = self._run_git_push()
+            if success:
                 print("Push completed according to policy.")
                 self.sprint_manager.record_push(decision.event_type, self.push_policy)
                 already_recorded = True
-                return True, decision.event_type, already_recorded
+                self._write_history_event(
+                    'push',
+                    {
+                        'policy': self.push_policy,
+                        'event_type': decision.event_type,
+                        'details': push_logs,
+                    },
+                )
+                return StepExecutionResult(True, True, decision.event_type, already_recorded)
+
             print("Push step failed; leaving commits local.")
-            return False, None, already_recorded
+            self._handle_step_failure('push', 'git push failed.', push_logs)
+            return StepExecutionResult(
+                True,
+                False,
+                None,
+                already_recorded,
+                failure_reported=True,
+                failure_details='Push failed; see logs for details.',
+            )
 
         if step_name == 'pr':
             print("Running pr step...")
             decision = self.sprint_manager.should_open_pr(self.push_policy)
             if not decision.should_run:
                 print(f"Skipping pr step: {decision.reason}")
-                return False, None, already_recorded
+                return StepExecutionResult(False, False, None, already_recorded)
             if not self._commits_ready_for_pr(decision.event_type):
                 print("No commits ready for PR; skipping pr step.")
-                return False, None, already_recorded
-            if self._open_pull_request():
+                return StepExecutionResult(False, False, None, already_recorded)
+
+            pr_created, pr_metadata = self._open_pull_request()
+            if pr_created:
                 print("Pull request created according to policy.")
                 self.sprint_manager.record_pr(decision.event_type, self.push_policy)
                 already_recorded = True
-                return True, decision.event_type, already_recorded
+                self._write_history_event(
+                    'pr_created',
+                    {
+                        'event_type': decision.event_type,
+                        'policy': self.push_policy,
+                        'metadata': pr_metadata,
+                    },
+                )
+                self._monitor_ci()
+                return StepExecutionResult(True, True, decision.event_type, already_recorded)
+
             print("Failed to create pull request; leaving for manual follow-up.")
-            return False, None, already_recorded
+            self._handle_step_failure('pr', 'Pull request creation failed.', pr_metadata)
+            return StepExecutionResult(
+                True,
+                False,
+                None,
+                already_recorded,
+                failure_reported=True,
+                failure_details='Failed to create pull request.',
+            )
 
         print(f"Step '{step_name}' is not automated; remember to handle it manually when prompted.")
-        return True, cadence_decision.event_type, already_recorded
+        return StepExecutionResult(True, True, cadence_decision.event_type, already_recorded)
 
     def _commits_ready_for_push(self, event_type: Optional[str]) -> bool:
         if event_type in {'feature', 'bug', 'epic'}:
@@ -243,37 +398,214 @@ class Douglas:
             return True
         return self.sprint_manager.commits_since_last_pr > 0
 
-    def _run_git_push(self) -> bool:
+    def _discover_local_check_commands(self) -> List[List[str]]:
+        commands: list[list[str]] = []
+        ci_config = self.config.get('ci', {}) or {}
+
+        def collect(value: Any) -> None:
+            if value is None:
+                return
+            if isinstance(value, str):
+                parsed = shlex.split(value)
+                if parsed:
+                    commands.append(parsed)
+                return
+            if isinstance(value, dict):
+                for item in value.values():
+                    collect(item)
+                return
+            if isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray, str)):
+                for item in value:
+                    collect(item)
+                return
+            command = [str(value)]
+            commands.append(command)
+
+        for key in ('additional_local_checks', 'local_checks'):
+            collect(ci_config.get(key))
+
+        existing = {tuple(cmd) for cmd in commands}
+        default_candidates = [
+            ('black', ['black', '--check', '.']),
+            ('bandit', ['bandit', '-r', str(self.project_root)]),
+            ('semgrep', ['semgrep', '--config', 'auto']),
+        ]
+
+        for tool, command in default_candidates:
+            if shutil.which(tool) and tuple(command) not in existing:
+                existing.add(tuple(command))
+                commands.append(command)
+
+        return commands
+
+    def _run_local_checks(self) -> Tuple[bool, str]:
+        commands = self._discover_local_check_commands()
+        if not commands:
+            self._loop_outcomes['local_checks'] = True
+            self._write_history_event('local_checks_pass', {'commands': []})
+            return True, 'No additional local checks configured.'
+
+        logs: list[str] = []
+        for command in commands:
+            display = ' '.join(command)
+            print(f"Running local check: {display}")
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=self.project_root,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                message = f"Local check command '{command[0]}' not found: {exc}"
+                logs.append(message)
+                self._loop_outcomes['local_checks'] = False
+                return False, "\n\n".join(logs)
+
+            logs.append(
+                self._format_command_output(
+                    display, result.stdout, result.stderr, result.returncode
+                )
+            )
+
+            if result.returncode != 0:
+                self._loop_outcomes['local_checks'] = False
+                return False, "\n\n".join(logs)
+
+        self._loop_outcomes['local_checks'] = True
+        self._write_history_event(
+            'local_checks_pass',
+            {
+                'commands': [' '.join(command) for command in commands],
+            },
+        )
+        return True, "\n\n".join(logs)
+
+    def _format_command_output(
+        self,
+        command_display: str,
+        stdout: Optional[str],
+        stderr: Optional[str],
+        returncode: Optional[int],
+    ) -> str:
+        parts = [f"$ {command_display}"]
+        if stdout:
+            stripped = stdout.strip()
+            if stripped:
+                parts.append(stripped)
+        if stderr:
+            stripped_err = stderr.strip()
+            if stripped_err:
+                parts.append(stripped_err)
+        parts.append(f"(exit code {returncode if returncode is not None else 0})")
+        return "\n".join(parts)
+
+    def _run_git_push(self) -> Tuple[bool, str]:
+        remote = self.config.get('vcs', {}).get('remote', 'origin')
+        branch = self.config.get('vcs', {}).get('current_branch') or self._get_current_branch()
+        command = ['git', 'push', '-u', remote, branch]
+        logs: list[str] = []
+
         try:
             result = subprocess.run(
-                ['git', 'push'],
+                command,
                 cwd=self.project_root,
                 capture_output=True,
                 text=True,
             )
         except FileNotFoundError as exc:
-            print(f"Warning: git not available to push changes: {exc}")
-            return False
+            message = f"git not available to push changes: {exc}"
+            print(f"Warning: {message}")
+            return False, message
 
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or result.stdout.strip()
-            if error_msg:
-                print(f"Warning: git push failed: {error_msg}")
-            else:
-                print("Warning: git push failed without diagnostics.")
-            return False
+        logs.append(
+            self._format_command_output(
+                ' '.join(command), result.stdout, result.stderr, result.returncode
+            )
+        )
 
-        return True
+        if result.returncode == 0:
+            return True, "\n\n".join(logs)
 
-    def _open_pull_request(self) -> bool:
+        error_msg = result.stderr.strip() or result.stdout.strip()
+        if error_msg:
+            print(f"Warning: git push failed: {error_msg}")
+        else:
+            print("Warning: git push failed without diagnostics.")
+
+        lowered_error = (error_msg or '').lower()
+        if 'rejected' in lowered_error or 'non-fast-forward' in lowered_error:
+            print("Push rejected; attempting fast-forward pull.")
+            pull_cmd = ['git', 'pull', '--ff-only', remote, branch]
+            try:
+                pull_result = subprocess.run(
+                    pull_cmd,
+                    cwd=self.project_root,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                message = f"git not available to pull changes: {exc}"
+                print(f"Warning: {message}")
+                logs.append(message)
+                return False, "\n\n".join(logs)
+
+            logs.append(
+                self._format_command_output(
+                    ' '.join(pull_cmd),
+                    pull_result.stdout,
+                    pull_result.stderr,
+                    pull_result.returncode,
+                )
+            )
+
+            if pull_result.returncode == 0:
+                try:
+                    retry_result = subprocess.run(
+                        command,
+                        cwd=self.project_root,
+                        capture_output=True,
+                        text=True,
+                    )
+                except FileNotFoundError as exc:
+                    message = f"git not available to retry push: {exc}"
+                    print(f"Warning: {message}")
+                    logs.append(message)
+                    return False, "\n\n".join(logs)
+
+                logs.append(
+                    self._format_command_output(
+                        ' '.join(command),
+                        retry_result.stdout,
+                        retry_result.stderr,
+                        retry_result.returncode,
+                    )
+                )
+
+                if retry_result.returncode == 0:
+                    return True, "\n\n".join(logs)
+
+                retry_error = retry_result.stderr.strip() or retry_result.stdout.strip()
+                if retry_error:
+                    print(f"Warning: git push retry failed: {retry_error}")
+
+        return False, "\n\n".join(logs)
+
+    def _open_pull_request(self) -> Tuple[bool, Optional[str]]:
         title, body = self._build_pr_content()
         base_branch = self.config.get('vcs', {}).get('default_branch', 'main')
+        head_branch = self._get_current_branch()
         try:
-            GitHub.create_pull_request(title=title, body=body, base=base_branch)
+            metadata = GitHub.create_pull_request(
+                title=title,
+                body=body,
+                base=base_branch,
+                head=head_branch,
+            )
         except Exception as exc:  # pragma: no cover - defensive logging
             print(f"Warning: Unable to create pull request: {exc}")
-            return False
-        return True
+            return False, str(exc)
+        return True, metadata
 
     def _build_pr_content(self) -> Tuple[str, str]:
         subject, commit_body = self._get_latest_commit_summary()
@@ -304,6 +636,266 @@ class Douglas:
             print(f"Warning: Unable to collect latest commit summary: {exc}")
             return "", ""
         return subject, body
+
+    def _get_current_branch(self) -> str:
+        configured = self.config.get('vcs', {}).get('current_branch')
+        if configured:
+            return str(configured)
+        try:
+            branch = subprocess.check_output(
+                ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                cwd=self.project_root,
+                text=True,
+            ).strip()
+            return branch or 'HEAD'
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return 'HEAD'
+
+    def _get_current_commit(self) -> Optional[str]:
+        try:
+            return subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'],
+                cwd=self.project_root,
+                text=True,
+            ).strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return None
+
+    def _monitor_ci(self, max_attempts: int = 10, poll_interval: int = 10) -> Optional[bool]:
+        if shutil.which('gh') is None:
+            print('GitHub CLI not available; skipping CI monitoring.')
+            self._ci_status = None
+            return None
+
+        commit_sha = self._get_current_commit()
+        if not commit_sha:
+            print('Unable to determine latest commit SHA for CI monitoring.')
+            self._ci_status = None
+            return None
+
+        branch = self._get_current_branch()
+        for attempt in range(max_attempts):
+            try:
+                result = subprocess.run(
+                    [
+                        'gh',
+                        'run',
+                        'list',
+                        '--limit',
+                        '20',
+                        '--json',
+                        'databaseId,headSha,status,conclusion,url',
+                        '--branch',
+                        branch,
+                    ],
+                    cwd=self.project_root,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError as exc:
+                print(f'Warning: GitHub CLI not available for CI monitoring: {exc}')
+                self._ci_status = None
+                return None
+
+            if result.returncode != 0:
+                message = result.stderr.strip() or result.stdout.strip() or 'unknown error'
+                print(f'Warning: Unable to list GitHub runs: {message}')
+                time.sleep(poll_interval)
+                continue
+
+            try:
+                runs = json.loads(result.stdout or '[]')
+            except json.JSONDecodeError as exc:
+                print(f'Warning: Unable to parse GitHub run list: {exc}')
+                time.sleep(poll_interval)
+                continue
+
+            target_run = next((run for run in runs if run.get('headSha') == commit_sha), None)
+            if not target_run:
+                time.sleep(poll_interval)
+                continue
+
+            status = target_run.get('status')
+            conclusion = target_run.get('conclusion')
+            run_id = target_run.get('databaseId')
+            run_url = target_run.get('url')
+
+            if status != 'completed':
+                print(f'Waiting for CI run {run_id} to complete (status: {status}).')
+                time.sleep(poll_interval)
+                continue
+
+            if conclusion == 'success':
+                print('CI checks succeeded for the latest commit.')
+                self._ci_status = 'success'
+                self._write_history_event(
+                    'ci_pass',
+                    {
+                        'run_id': run_id,
+                        'url': run_url,
+                        'commit': commit_sha,
+                    },
+                )
+                return True
+
+            summary = f'CI run {run_id} failed with conclusion {conclusion}.'
+            log_path = self._download_ci_logs(run_id)
+            excerpt = None
+            if log_path and log_path.exists():
+                try:
+                    content = log_path.read_text(encoding='utf-8')
+                    excerpt = content[-4000:]
+                except OSError as exc:
+                    excerpt = f'Unable to read CI log file: {exc}'
+
+            self._ci_status = 'failure'
+            self._write_history_event(
+                'ci_fail',
+                {
+                    'run_id': run_id,
+                    'url': run_url,
+                    'commit': commit_sha,
+                    'conclusion': conclusion,
+                },
+            )
+            self._handle_step_failure('ci', summary, excerpt)
+            return False
+
+        print('CI run not found or did not complete within the monitoring window.')
+        self._ci_status = None
+        return None
+
+    def _download_ci_logs(self, run_id: Optional[int]) -> Optional[Path]:
+        if not run_id:
+            return None
+        if shutil.which('gh') is None:
+            print('GitHub CLI not available; cannot download CI logs.')
+            return None
+
+        log_dir = self.project_root / 'ai-inbox' / 'ci'
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f'ci-run-{run_id}.log'
+
+        try:
+            result = subprocess.run(
+                ['gh', 'run', 'view', str(run_id), '--log'],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            print(f'Warning: GitHub CLI not available to download CI logs: {exc}')
+            return None
+
+        if result.returncode != 0:
+            message = result.stderr.strip() or result.stdout.strip() or 'unknown error'
+            print(f'Warning: Unable to download CI logs: {message}')
+            return None
+
+        try:
+            log_path.write_text(result.stdout, encoding='utf-8')
+        except OSError as exc:
+            print(f'Warning: Unable to write CI log file: {exc}')
+            return None
+
+        return log_path
+
+    def _create_bug_ticket(
+        self,
+        *,
+        category: str,
+        summary: str,
+        details: str,
+        log_excerpt: Optional[str],
+    ) -> str:
+        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')
+        bug_id = f'FEAT-BUG-{timestamp}'
+
+        inbox_dir = self.project_root / 'ai-inbox'
+        inbox_dir.mkdir(parents=True, exist_ok=True)
+        bug_file = inbox_dir / 'bugs.md'
+
+        entry_lines = []
+        if not bug_file.exists():
+            entry_lines.append('# Automated Bug Tickets\n')
+
+        entry_lines.append(f'## {bug_id} - {summary}\n')
+        entry_lines.append(f'*Category*: {category}\n')
+
+        commit_sha = self._get_current_commit()
+        branch = self._get_current_branch()
+        if commit_sha:
+            entry_lines.append(f'*Commit*: `{commit_sha}`\n')
+        if branch:
+            entry_lines.append(f'*Branch*: `{branch}`\n')
+
+        cleaned_details = (details or summary).strip()
+        if cleaned_details:
+            entry_lines.append(cleaned_details + '\n')
+
+        if log_excerpt:
+            snippet = log_excerpt.strip()
+            if len(snippet) > 4000:
+                snippet = snippet[-4000:]
+            entry_lines.append('### Log Excerpt\n')
+            entry_lines.append('```\n' + snippet + '\n```\n')
+
+        entry_lines.append('\n')
+
+        try:
+            with bug_file.open('a', encoding='utf-8') as handle:
+                handle.write(''.join(entry_lines))
+        except OSError as exc:
+            print(f'Warning: Unable to write bug ticket: {exc}')
+
+        self._write_history_event(
+            'bug_reported',
+            {
+                'bug_id': bug_id,
+                'category': category,
+                'summary': summary,
+                'commit': commit_sha,
+            },
+        )
+        return bug_id
+
+    def _write_history_event(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        record: Dict[str, Any] = {
+            'timestamp': timestamp,
+            'event': event_type,
+        }
+        if payload:
+            record.update(payload)
+
+        try:
+            self.history_path.parent.mkdir(parents=True, exist_ok=True)
+            self._ensure_history_is_git_ignored()
+            with self.history_path.open('a', encoding='utf-8') as handle:
+                handle.write(json.dumps(record, sort_keys=False))
+                handle.write('\n')
+        except OSError as exc:
+            print(f'Warning: Unable to write history event: {exc}')
+
+    def _ensure_history_is_git_ignored(self) -> None:
+        git_dir = self.project_root / '.git'
+        if not git_dir.is_dir():
+            return
+
+        exclude_path = git_dir / 'info' / 'exclude'
+        try:
+            exclude_path.parent.mkdir(parents=True, exist_ok=True)
+            existing = ''
+            if exclude_path.exists():
+                existing = exclude_path.read_text(encoding='utf-8')
+            if 'ai-inbox/' in existing:
+                return
+            with exclude_path.open('a', encoding='utf-8') as handle:
+                if existing and not existing.endswith('\n'):
+                    handle.write('\n')
+                handle.write('ai-inbox/\n')
+        except OSError:
+            pass
 
     def generate(self):
         prompt = self._build_generation_prompt()
@@ -834,6 +1426,14 @@ class Douglas:
         if self._run_git_commit(commit_message):
             print(f"Created commit: {commit_message}")
             self.sprint_manager.record_commit(commit_message)
+            commit_sha = self._get_current_commit()
+            self._write_history_event(
+                'commit',
+                {
+                    'message': commit_message,
+                    'commit': commit_sha,
+                },
+            )
             return True, commit_message
 
         return False, None
@@ -1035,6 +1635,148 @@ class Douglas:
         print(f"Initializing new project '{project_name}' with Douglas...")
         project_dir = Path(project_name)
         project_dir.mkdir(parents=True, exist_ok=True)
-        (project_dir / 'douglas.yaml').write_text('project:\n  name: "' + project_name + '"\n', encoding='utf-8')
-        (project_dir / 'README.md').write_text(f"# {project_name}\nCreated with Douglas\n", encoding='utf-8')
-        print("Project initialized. Please review and customize douglas.yaml.")
+        config_template = {
+            'project': {
+                'name': project_name,
+                'description': f'Project scaffolded by Douglas for {project_name}.',
+                'language': self.config.get('project', {}).get('language', 'python'),
+            },
+            'ai': {
+                'provider': self.config.get('ai', {}).get('provider', 'openai'),
+                'model': self.config.get('ai', {}).get('model', 'gpt-4'),
+                'prompt': 'system_prompt.md',
+            },
+            'loop': {
+                'steps': [
+                    {'name': 'generate'},
+                    {'name': 'lint'},
+                    {'name': 'typecheck'},
+                    {'name': 'test'},
+                    {'name': 'commit'},
+                    {'name': 'push'},
+                    {'name': 'pr'},
+                ],
+                'exit_conditions': ['ci_pass'],
+            },
+            'push_policy': 'per_feature',
+            'sprint': {'length_days': 10},
+            'vcs': {'default_branch': 'main'},
+        }
+
+        (project_dir / 'douglas.yaml').write_text(
+            yaml.safe_dump(config_template, sort_keys=False),
+            encoding='utf-8',
+        )
+
+        readme_content = (
+            f"# {project_name}\n\n"
+            "This project was generated by Douglas with a ready-to-run Python scaffold.\n"
+            "Update the configuration in `douglas.yaml` to match your workflow and goals.\n"
+        )
+        (project_dir / 'README.md').write_text(readme_content, encoding='utf-8')
+
+        system_prompt = (
+            "You are Douglas, an AI assistant that helps implement high-quality software. "
+            "Follow best practices, write tests, and keep responses actionable.\n"
+        )
+        (project_dir / 'system_prompt.md').write_text(system_prompt, encoding='utf-8')
+
+        gitignore_content = """# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Douglas artifacts
+ai-inbox/
+douglas_review.md
+"""
+        (project_dir / '.gitignore').write_text(gitignore_content, encoding='utf-8')
+
+        src_dir = project_dir / 'src'
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / '__init__.py').write_text('', encoding='utf-8')
+        main_py = (
+            """
+from __future__ import annotations
+
+
+def greet(name: str = "world") -> str:
+    '''Return a friendly greeting.'''
+
+    return f"Hello, {name}!"
+
+
+def main() -> None:
+    '''Entrypoint for the scaffolded application.'''
+
+    print(greet())
+
+
+if __name__ == "__main__":
+    main()
+"""
+        ).strip()
+        (src_dir / 'main.py').write_text(main_py + '\n', encoding='utf-8')
+
+        tests_dir = project_dir / 'tests'
+        tests_dir.mkdir(parents=True, exist_ok=True)
+        (tests_dir / '__init__.py').write_text('', encoding='utf-8')
+        test_main = (
+            """
+from src import main
+
+
+def test_greet_returns_custom_message():
+    assert main.greet("Douglas") == "Hello, Douglas!"
+"""
+        ).strip()
+        (tests_dir / 'test_main.py').write_text(test_main + '\n', encoding='utf-8')
+
+        workflow_dir = project_dir / '.github' / 'workflows'
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        workflow_content = (
+            """
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt || true
+          pip install pytest
+      - name: Lint
+        run: |
+          pip install ruff black isort
+          ruff .
+          black --check .
+          isort --check-only .
+      - name: Tests
+        run: pytest
+"""
+        ).strip()
+        (workflow_dir / 'ci.yml').write_text(workflow_content + '\n', encoding='utf-8')
+
+        print(
+            "Project initialized with configuration, sample source files, tests, and CI workflow."
+        )
