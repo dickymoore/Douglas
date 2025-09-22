@@ -10,6 +10,7 @@ from douglas.providers.llm_provider import LLMProvider
 from douglas.pipelines import lint, typecheck, test as testpipe
 
 class Douglas:
+    DEFAULT_COMMIT_MESSAGE = "chore: automated commit"
     def __init__(self, config_path='douglas.yaml'):
         self.config_path = Path(config_path)
         self.config = self.load_config(self.config_path)
@@ -60,8 +61,8 @@ class Douglas:
                 self.review()
             else:
                 print(f"Unknown step '{step}'; skipping.")
+        self._commit_if_needed()
         print("Douglas loop completed.")
-        # In later versions, commit/push/PR steps would follow.
 
     def generate(self):
         prompt = self._build_generation_prompt()
@@ -571,6 +572,205 @@ class Douglas:
             print(f"Saved review feedback to {review_path.relative_to(self.project_root)}.")
         except OSError as exc:
             print(f"Warning: Unable to save review feedback to {review_path}: {exc}")
+
+    def _commit_if_needed(self):
+        if not self._has_uncommitted_changes():
+            print("No pending changes detected; skipping commit step.")
+            return
+
+        if not self._stage_all_changes():
+            return
+
+        staged_paths = self._get_staged_paths()
+        if not staged_paths:
+            print("No staged changes detected after adding; skipping commit step.")
+            return
+
+        commit_message = self._generate_commit_message()
+        if not commit_message:
+            commit_message = self.DEFAULT_COMMIT_MESSAGE
+
+        if self._run_git_commit(commit_message):
+            print(f"Created commit: {commit_message}")
+
+    def _has_uncommitted_changes(self):
+        try:
+            result = subprocess.run(
+                ['git', 'status', '--porcelain'],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            error_msg = exc.stderr or exc.stdout or ''
+            error_msg = error_msg.strip()
+            if error_msg:
+                print(f"Warning: Unable to determine git status for commit: {error_msg}")
+            else:
+                print("Warning: Unable to determine git status for commit.")
+            return False
+        except FileNotFoundError as exc:
+            print(f"Warning: git not available to detect changes: {exc}")
+            return False
+
+        return bool(result.stdout.strip())
+
+    def _stage_all_changes(self):
+        try:
+            result = subprocess.run(
+                ['git', 'add', '-A'],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            print(f"Warning: git not available to stage changes: {exc}")
+            return False
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or result.stdout.strip()
+            if error_msg:
+                print(f"Warning: git add -A failed: {error_msg}")
+            else:
+                print("Warning: git add -A failed without diagnostics.")
+            return False
+
+        return True
+
+    def _get_staged_paths(self):
+        try:
+            result = subprocess.run(
+                ['git', 'diff', '--cached', '--name-only'],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            print(f"Warning: Unable to list staged files: {exc}")
+            return []
+
+        paths = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        return paths
+
+    def _get_staged_diff(self):
+        try:
+            result = subprocess.run(
+                ['git', 'diff', '--cached'],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            error_msg = exc.stderr or exc.stdout or ''
+            error_msg = error_msg.strip()
+            if error_msg:
+                print(f"Warning: Unable to collect staged diff: {error_msg}")
+            else:
+                print("Warning: Unable to collect staged diff.")
+            return ""
+        except FileNotFoundError as exc:
+            print(f"Warning: git not available to collect staged diff: {exc}")
+            return ""
+
+        diff_text = result.stdout
+        max_length = 20000
+        if len(diff_text) > max_length:
+            truncated = diff_text[:max_length]
+            truncated += "\n... (diff truncated)"
+            return truncated
+        return diff_text
+
+    def _generate_commit_message(self):
+        diff_text = self._get_staged_diff()
+        status_text = self._get_git_status()
+        prompt = self._build_commit_prompt(diff_text, status_text)
+        if not prompt:
+            return self.DEFAULT_COMMIT_MESSAGE
+
+        try:
+            response = self.lm_provider.generate_code(prompt)
+        except Exception as exc:
+            print(f"Warning: Unable to generate commit message via language model: {exc}")
+            return self.DEFAULT_COMMIT_MESSAGE
+
+        message = self._sanitize_commit_message(response)
+        if not message:
+            return self.DEFAULT_COMMIT_MESSAGE
+        return message
+
+    def _build_commit_prompt(self, diff_text, status_text):
+        sections = []
+
+        system_prompt = self._read_system_prompt()
+        if system_prompt:
+            sections.append(f"SYSTEM PROMPT:\n{system_prompt.strip()}")
+
+        metadata = []
+        if self.project_name:
+            metadata.append(f"Project: {self.project_name}")
+        language = self.config.get('project', {}).get('language')
+        if language:
+            metadata.append(f"Primary language: {language}")
+        if metadata:
+            sections.append("PROJECT CONTEXT:\n" + "\n".join(metadata))
+
+        instructions = (
+            "TASK:\nGenerate a concise Conventional Commits style subject line for the staged changes. "
+            "Respond with a single line formatted as '<type>: <description>' without additional commentary or trailing punctuation."
+        )
+        sections.append(instructions)
+
+        if status_text:
+            sections.append("GIT STATUS:\n" + status_text.strip())
+
+        if diff_text:
+            sections.append("STAGED DIFF:\n" + diff_text.strip())
+
+        return "\n\n".join(section for section in sections if section).strip()
+
+    def _sanitize_commit_message(self, message):
+        if not message:
+            return ""
+
+        first_line = message.strip().splitlines()[0].strip()
+        if not first_line:
+            return ""
+
+        first_line = first_line.strip("`'\"")
+        first_line = re.sub(r"\s+", " ", first_line)
+        while first_line.endswith(('.', '!', '?')):
+            first_line = first_line[:-1].rstrip()
+
+        max_length = 72
+        if len(first_line) > max_length:
+            first_line = first_line[:max_length].rstrip()
+
+        return first_line
+
+    def _run_git_commit(self, message):
+        try:
+            result = subprocess.run(
+                ['git', 'commit', '-m', message],
+                cwd=self.project_root,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            print(f"Warning: git not available to create commit: {exc}")
+            return False
+
+        if result.returncode != 0:
+            error_msg = result.stderr.strip() or result.stdout.strip()
+            if error_msg:
+                print(f"Warning: git commit failed: {error_msg}")
+            else:
+                print("Warning: git commit failed without diagnostics.")
+            return False
+
+        return True
 
 
     def check(self):
