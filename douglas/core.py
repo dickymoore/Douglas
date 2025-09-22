@@ -36,6 +36,7 @@ class Douglas:
         'per_epic',
         'per_sprint',
     }
+    MAX_LOG_EXCERPT_LENGTH = 4000
     def __init__(self, config_path='douglas.yaml'):
         self.config_path = Path(config_path)
         self.config = self.load_config(self.config_path)
@@ -745,7 +746,7 @@ class Douglas:
             if log_path and log_path.exists():
                 try:
                     content = log_path.read_text(encoding='utf-8')
-                    excerpt = content[-4000:]
+                    excerpt = content[-self.MAX_LOG_EXCERPT_LENGTH:]
                 except OSError as exc:
                     excerpt = f'Unable to read CI log file: {exc}'
 
@@ -836,8 +837,8 @@ class Douglas:
 
         if log_excerpt:
             snippet = log_excerpt.strip()
-            if len(snippet) > 4000:
-                snippet = snippet[-4000:]
+            if len(snippet) > self.MAX_LOG_EXCERPT_LENGTH:
+                snippet = snippet[-self.MAX_LOG_EXCERPT_LENGTH:]
             entry_lines.append('### Log Excerpt\n')
             entry_lines.append('```\n' + snippet + '\n```\n')
 
@@ -1769,7 +1770,7 @@ jobs:
       - name: Lint
         run: |
           pip install ruff black isort
-          ruff .
+          ruff check .
           black --check .
           isort --check-only .
       - name: Tests
