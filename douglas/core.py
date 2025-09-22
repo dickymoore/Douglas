@@ -1539,7 +1539,12 @@ class Douglas:
         diff_text = result.stdout
         max_length = 20000
         if len(diff_text) > max_length:
-            truncated = diff_text[:max_length]
+            # Truncate at the last complete line before max_length
+            last_newline = diff_text.rfind('\n', 0, max_length)
+            if last_newline != -1:
+                truncated = diff_text[:last_newline]
+            else:
+                truncated = diff_text[:max_length]
             truncated += "\n... (diff truncated)"
             return truncated
         return diff_text
