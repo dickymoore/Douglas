@@ -67,7 +67,9 @@ class Douglas:
 
     def _resolve_sprint_length(self) -> Optional[int]:
         sprint_config = self.config.get('sprint', {}) or {}
-        raw_length = sprint_config.get('length_days', sprint_config.get('length'))
+        if 'length' in sprint_config:
+            print("Warning: 'length' is deprecated. Please use 'length_days' in the sprint configuration.")
+        raw_length = sprint_config.get('length_days')
         if raw_length is None:
             return None
         try:
