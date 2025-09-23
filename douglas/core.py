@@ -744,12 +744,23 @@ class Douglas:
             local_checks_ok, local_logs = self._run_local_checks()
             if not local_checks_ok:
                 print("Local checks failed; aborting push.")
-                self._handle_step_failure('local_checks', 'Local checks failed before push.', local_logs)
+                self._handle_step_failure(
+                    'local_checks', 'Local checks failed before push.', local_logs
+                )
+                handoff_context = self._build_local_check_handoff_context(local_logs)
+                handoff_id = self._raise_agent_handoff(
+                    'DevOps',
+                    'Developer',
+                    'Resolve local guard check failures',
+                    handoff_context,
+                    blocking=True,
+                )
                 self._record_agent_summary(
                     'DevOps',
                     'push',
                     'Push blocked because required local checks failed.',
                     {'status': 'failed', 'reason': 'local_checks'},
+                    handoff_ids=[handoff_id] if handoff_id else None,
                 )
                 return StepExecutionResult(
                     True,
@@ -945,6 +956,13 @@ class Douglas:
                 message = f"Local check command '{command[0]}' not found: {exc}"
                 logs.append(message)
                 self._loop_outcomes['local_checks'] = False
+                self._write_history_event(
+                    'local_checks_fail',
+                    {
+                        'command': display,
+                        'error': str(exc),
+                    },
+                )
                 return False, "\n\n".join(logs)
 
             logs.append(
@@ -955,6 +973,15 @@ class Douglas:
 
             if result.returncode != 0:
                 self._loop_outcomes['local_checks'] = False
+                self._write_history_event(
+                    'local_checks_fail',
+                    {
+                        'command': display,
+                        'returncode': result.returncode,
+                        'stdout_excerpt': self._tail_log_excerpt(result.stdout),
+                        'stderr_excerpt': self._tail_log_excerpt(result.stderr),
+                    },
+                )
                 return False, "\n\n".join(logs)
 
         self._loop_outcomes['local_checks'] = True
@@ -984,6 +1011,26 @@ class Douglas:
                 parts.append(stripped_err)
         parts.append(f"(exit code {returncode if returncode is not None else 0})")
         return "\n".join(parts)
+
+    def _tail_log_excerpt(self, logs: Optional[str], limit: int = 1200) -> Optional[str]:
+        if not logs:
+            return None
+        snippet = logs.strip()
+        if not snippet:
+            return None
+        max_len = min(limit, self.MAX_LOG_EXCERPT_LENGTH)
+        if len(snippet) <= max_len:
+            return snippet
+        return snippet[-max_len:]
+
+    def _build_local_check_handoff_context(self, logs: Optional[str]) -> str:
+        lines = [
+            'Local guard checks failed prior to push. Please resolve the reported issues before retrying the release.',
+        ]
+        excerpt = self._tail_log_excerpt(logs)
+        if excerpt:
+            lines.extend(['', '```', excerpt, '```'])
+        return "\n".join(lines)
 
     def _run_git_push(self) -> Tuple[bool, str]:
         remote = self.config.get('vcs', {}).get('remote', 'origin')
