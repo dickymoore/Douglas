@@ -2,7 +2,7 @@
 
 Douglas is a developer-lifecycle companion that automates an AI-assisted build, test, review, and release loop for software teams. It reads a configuration file, orchestrates lint/type/test/demo/retro pipelines, records outcomes for each agile role, and coordinates release policies and CI monitoring.
 
-> **Status:** Douglas is not yet published on PyPI. Install from source as shown below. The bundled OpenAI provider is a stub that logs prompts rather than contacting an API.
+> **Status:** Douglas is not yet published on PyPI. Install from source as shown below. The bundled OpenAI provider talks to the OpenAI API when credentials are configured and degrades gracefully to a local stub otherwise.
 
 ## Table of contents
 
@@ -44,6 +44,15 @@ pre-commit install
 
 The Typer-based CLI entry point currently exposes only a `hello` command for smoke testing (`python cli.py hello`). Planned verbs such as `run`, `check`, and `init` are implemented in the Python API but not yet wired into the CLI.
 
+### Configure OpenAI access
+
+Douglas ships with an OpenAI-backed provider. To enable real model output:
+
+1. Install the OpenAI SDK (`pip install openai`) or use the optional extra (`pip install -e .[openai]`).
+2. Export `OPENAI_API_KEY`. You can also set `OPENAI_MODEL` to override the default (`gpt-4o-mini`) and `OPENAI_BASE_URL`/`OPENAI_API_BASE` for compatible endpoints.
+
+If the API key or SDK is missing, Douglas will continue to run but the provider falls back to a local stub that logs prompts instead of contacting the API.
+
 ### Running the orchestrator without installing
 
 If you prefer not to install the package, run the repository-local CLI module directly:
@@ -78,7 +87,7 @@ The central `Douglas` class reads the configuration, constructs providers, and e
 Core capabilities:
 
 - **Lifecycle control** – `run_loop()` normalizes configured steps, enforces iteration limits, honours exit conditions (`tests_pass`, `ci_pass`, `sprint_demo_complete`, etc.), and respects soft/hard stop directives from a run-state file.[`douglas/core.py`](douglas/core.py)
-- **Provider bootstrap** – `create_llm_provider()` instantiates the configured LLM provider (currently OpenAI stub).[`douglas/core.py`](douglas/core.py)
+- **Provider bootstrap** – `create_llm_provider()` instantiates the configured LLM provider (OpenAI with a graceful offline fallback).[`douglas/core.py`](douglas/core.py)
 - **Sprint & cadence integration** – `SprintManager` tracks sprint day counters, completed features/bugs/epics, and commit counts, while `CadenceManager` decides whether each step should execute this iteration.[`douglas/core.py`](douglas/core.py)[`douglas/sprint_manager.py`](douglas/sprint_manager.py)[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
 - **Run-state enforcement** – `_check_run_state()` reads `user-portal/run-state.txt` (configurable) so that humans can request soft or hard stops mid-run.[`douglas/core.py`](douglas/core.py)[`douglas/controls/run_state.py`](douglas/controls/run_state.py)
 - **Question handling** – `_refresh_question_state()` looks for unanswered questions in the user portal and defers role steps until blocking items have been answered and archived.[`douglas/core.py`](douglas/core.py)[`douglas/journal/questions.py`](douglas/journal/questions.py)
@@ -132,7 +141,7 @@ Each pipeline module focuses on a single concern:
 The provider abstraction keeps Douglas model-agnostic:
 
 - `LLMProvider` is a simple interface with a `generate_code(prompt)` method and a `create_provider()` factory.[`douglas/providers/llm_provider.py`](douglas/providers/llm_provider.py)
-- `OpenAIProvider` validates the `OPENAI_API_KEY` environment variable and currently echoes prompts to stdout while returning placeholder text (intended for future OpenAI SDK integration).[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
+- `OpenAIProvider` initialises the OpenAI SDK, honours `OPENAI_MODEL`/`OPENAI_BASE_URL`, and returns real model output when `OPENAI_API_KEY` is set (falling back to a local stub if credentials or the SDK are missing).[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
 
 ### Templates, bootstrapping & examples
 
@@ -207,9 +216,9 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
    - Copy `system_prompt.md` from Douglas or author your own.
    - Copy `templates/douglas.yaml.tpl` and adapt it to your repo (at minimum set the project name and ensure the `paths.app_src` and `paths.tests` entries match your layout).
 
-4. **Stub the LLM provider (optional)**
-   - For offline experimentation you can monkeypatch `Douglas.create_llm_provider` to return a simple object with a `generate_code(prompt)` method that prints the prompt and returns deterministic output (the test suite demonstrates this pattern).
-   - Alternatively, export `OPENAI_API_KEY` and implement the API call inside `OpenAIProvider`.
+4. **Configure the LLM provider**
+   - Export `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` or `OPENAI_BASE_URL`) to enable the bundled OpenAI integration.
+   - For offline experimentation you can monkeypatch `Douglas.create_llm_provider` to return a simple object with a `generate_code(prompt)` method that prints the prompt and returns deterministic output (the test suite demonstrates this pattern). The built-in provider will also fall back to a local stub whenever credentials or the SDK are unavailable.
 
 5. **Run the development loop from Python**
    - Because the CLI is not wired yet, run Douglas programmatically:
@@ -246,7 +255,7 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
 ## Limitations and open gaps
 
 - The CLI surface (`douglas` entry point) is not yet wired to the orchestrator; only a `hello` command is exposed in `cli.py`.
-- `OpenAIProvider` is a placeholder that prints prompts and returns canned text; integrating a real SDK (and adding configurable providers) is future work.
+- `OpenAIProvider` now integrates with the OpenAI SDK (with graceful fallbacks); pluggable support for additional providers remains future work.
 - The security pipeline is a stub (`run_security()` only logs a message) and the lint/typecheck modules require `subprocess` imports to function when run standalone.
 - The package entry point in `pyproject.toml` (`douglas = "douglas.cli:app"`) assumes a `douglas/cli.py` module that does not yet exist; adjust before publishing to PyPI.
 
