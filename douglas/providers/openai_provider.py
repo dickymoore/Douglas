@@ -186,14 +186,23 @@ class OpenAIProvider(LLMProvider):
         if isinstance(content, Sequence) and not isinstance(
             content, (str, bytes, bytearray)
         ):
-            pieces: list[str] = []
-            for item in content:
-                piece = self._coerce_text_value(item, depth=depth + 1, seen=seen)
-                if piece:
-                    pieces.append(piece)
-            if pieces:
-                return "\n".join(pieces).strip()
-            return ""
+            obj_id = id(content)
+            if obj_id in seen:
+                return ""
+            seen.add(obj_id)
+            try:
+                pieces: list[str] = []
+                for item in content:
+                    piece = self._normalize_response_content(
+                        item, depth=depth + 1, seen=seen
+                    )
+                    if piece:
+                        pieces.append(piece)
+                if pieces:
+                    return "\n".join(pieces).strip()
+                return ""
+            finally:
+                seen.discard(obj_id)
 
         return self._coerce_text_value(content, depth=depth + 1, seen=seen)
 

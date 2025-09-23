@@ -12,6 +12,7 @@ import typer
 import yaml
 
 from douglas.core import Douglas
+from douglas.providers.openai_provider import OpenAIProvider
 
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
@@ -19,7 +20,7 @@ app = typer.Typer(help="AI-assisted development loop orchestrator")
 
 _DEFAULT_INIT_CONFIG = {
     "project": {"language": "python"},
-    "ai": {"provider": "openai", "model": "gpt-4"},
+    "ai": {"provider": "openai", "model": OpenAIProvider.DEFAULT_MODEL},
     "history": {"max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH},
 }
 
