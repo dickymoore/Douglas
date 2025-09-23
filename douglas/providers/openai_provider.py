@@ -87,9 +87,9 @@ class OpenAIProvider(LLMProvider):
 
         try:
             if self._use_responses_api:
-                response = self._client.responses.create(
+                response = self._client.chat.completions.create(
                     model=self.model,
-                    input=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": prompt}],
                 )
                 text = self._extract_responses_text(response)
             else:
