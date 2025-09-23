@@ -16,7 +16,9 @@ _HISTORY_EVENT = "demo_pack_generated"
 class _SafeDict(dict):
     """Dictionary that returns an empty string for missing keys."""
 
-    def __missing__(self, key: str) -> str:  # Template safety - returns empty string for undefined variables
+    def __missing__(
+        self, key: str
+    ) -> str:  # Template safety - returns empty string for undefined variables
         return ""
 
 
@@ -83,7 +85,9 @@ def write_demo_pack(context: Dict[str, Any]) -> DemoMetadata:
 
     test_summary = _build_test_summary(project_root, loop_outcomes)
 
-    limitations_text = _load_optional_text(project_root, sprint_folder, "limitations.md")
+    limitations_text = _load_optional_text(
+        project_root, sprint_folder, "limitations.md"
+    )
     if not limitations_text.strip():
         limitations_text = "_No limitations documented for this sprint._"
 
@@ -100,25 +104,31 @@ def write_demo_pack(context: Dict[str, Any]) -> DemoMetadata:
         "date": now.strftime("%Y-%m-%d"),
         "head_commit": head_commit or "N/A",
         "commit_range": commit_range or "N/A",
-        "implemented_features_section": _render_section(
-            "What was implemented", implemented_features
-        )
-        if "implemented_features" in include_tokens or not include_tokens
-        else "",
-        "how_to_run_section": _render_section("How to run / test", how_to_run)
-        if "how_to_run" in include_tokens or not include_tokens
-        else "",
-        "test_results_section": _render_section("Test summary", test_summary)
-        if "test_results" in include_tokens or not include_tokens
-        else "",
-        "limitations_section": _render_section(
-            "Known limitations / TODO", limitations_text
-        )
-        if "limitations" in include_tokens or not include_tokens
-        else "",
-        "next_steps_section": _render_section("Next steps", next_steps_text)
-        if "next_steps" in include_tokens or not include_tokens
-        else "",
+        "implemented_features_section": (
+            _render_section("What was implemented", implemented_features)
+            if "implemented_features" in include_tokens or not include_tokens
+            else ""
+        ),
+        "how_to_run_section": (
+            _render_section("How to run / test", how_to_run)
+            if "how_to_run" in include_tokens or not include_tokens
+            else ""
+        ),
+        "test_results_section": (
+            _render_section("Test summary", test_summary)
+            if "test_results" in include_tokens or not include_tokens
+            else ""
+        ),
+        "limitations_section": (
+            _render_section("Known limitations / TODO", limitations_text)
+            if "limitations" in include_tokens or not include_tokens
+            else ""
+        ),
+        "next_steps_section": (
+            _render_section("Next steps", next_steps_text)
+            if "next_steps" in include_tokens or not include_tokens
+            else ""
+        ),
     }
 
     output_path = target_dir / f"demo.{output_format}"
@@ -228,7 +238,9 @@ def _format_commit_range(
     return ""
 
 
-def _collect_role_summaries(project_root: Path, sprint_folder: str) -> List[Tuple[str, str]]:
+def _collect_role_summaries(
+    project_root: Path, sprint_folder: str
+) -> List[Tuple[str, str]]:
     base = project_root / "ai-inbox" / "sprints" / sprint_folder / "roles"
     if not base.is_dir():
         return []
@@ -353,5 +365,3 @@ def _render_section(title: str, body: str) -> str:
     if not body.strip():
         return ""
     return f"## {title}\n{body.strip()}\n\n"
-
-

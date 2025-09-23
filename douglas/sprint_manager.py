@@ -58,7 +58,9 @@ def should_run_step(
 
     if frequency == "once":
         if run_count == 0:
-            return CadenceDecision(True, "Once cadence has not yet executed this sprint.")
+            return CadenceDecision(
+                True, "Once cadence has not yet executed this sprint."
+            )
         return CadenceDecision(False, "Once cadence already satisfied for this sprint.")
 
     if frequency in {"on_demand", "on-demand"}:
@@ -66,7 +68,9 @@ def should_run_step(
 
     if frequency == "per_sprint":
         if sprint_length <= 0:
-            return CadenceDecision(True, "Sprint length unspecified; executing per-sprint step.", "sprint")
+            return CadenceDecision(
+                True, "Sprint length unspecified; executing per-sprint step.", "sprint"
+            )
         if sprint_day == sprint_length and per_sprint_consumed == 0:
             return CadenceDecision(
                 True,
@@ -78,7 +82,9 @@ def should_run_step(
                 False,
                 f"Per-sprint cadence waits for day {sprint_length}; currently day {sprint_day}.",
             )
-        return CadenceDecision(False, "Per-sprint cadence already completed for this sprint.")
+        return CadenceDecision(
+            False, "Per-sprint cadence already completed for this sprint."
+        )
 
     event_frequency_map = {
         "per_feature": "feature",
@@ -96,15 +102,21 @@ def should_run_step(
                 f"{pending} {event_key}{plural} awaiting follow-up.",
                 event_key,
             )
-        return CadenceDecision(False, f"No pending {event_key} work queued for this cadence.")
+        return CadenceDecision(
+            False, f"No pending {event_key} work queued for this cadence."
+        )
 
-    return CadenceDecision(True, f"Unrecognized cadence '{frequency}'; defaulting to execution.")
+    return CadenceDecision(
+        True, f"Unrecognized cadence '{frequency}'; defaulting to execution."
+    )
 
 
 class SprintManager:
     """Tracks sprint progress and cadence-driven events."""
 
-    _COMMIT_PATTERN = re.compile(r"^(?P<type>[a-zA-Z]+)(?P<breaking>!)?(?:\((?P<scope>[^)]+)\))?:")
+    _COMMIT_PATTERN = re.compile(
+        r"^(?P<type>[a-zA-Z]+)(?P<breaking>!)?(?:\((?P<scope>[^)]+)\))?:"
+    )
 
     def __init__(self, sprint_length_days: Optional[int] = None) -> None:
         if sprint_length_days is None:
@@ -118,7 +130,9 @@ class SprintManager:
         self.sprint_index = 1
 
         self.pending_events: Dict[str, int] = {"feature": 0, "bug": 0, "epic": 0}
-        self.event_consumption: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.event_consumption: Dict[str, Dict[str, int]] = defaultdict(
+            lambda: defaultdict(int)
+        )
         self.step_run_counts: Dict[str, int] = defaultdict(int)
 
         self.completed_features: set[str] = set()
@@ -164,7 +178,9 @@ class SprintManager:
     # ------------------------------------------------------------------
     # Cadence evaluation
     # ------------------------------------------------------------------
-    def should_run_step(self, step_name: str, cadence: Optional[object]) -> CadenceDecision:
+    def should_run_step(
+        self, step_name: str, cadence: Optional[object]
+    ) -> CadenceDecision:
         available = {
             "feature": self._available_event_for_consumer("feature", step_name),
             "bug": self._available_event_for_consumer("bug", step_name),
@@ -242,22 +258,34 @@ class SprintManager:
             available = self._available_event_for_consumer("feature", "push")
             if available > 0:
                 plural = "s" if available != 1 else ""
-                return CadenceDecision(True, f"{available} feature{plural} ready to push.", "feature")
-            return CadenceDecision(False, "Push policy per_feature: no completed features pending.")
+                return CadenceDecision(
+                    True, f"{available} feature{plural} ready to push.", "feature"
+                )
+            return CadenceDecision(
+                False, "Push policy per_feature: no completed features pending."
+            )
 
         if policy == "per_bug":
             available = self._available_event_for_consumer("bug", "push")
             if available > 0:
                 plural = "s" if available != 1 else ""
-                return CadenceDecision(True, f"{available} bug fix{plural} ready to push.", "bug")
-            return CadenceDecision(False, "Push policy per_bug: no resolved bugs pending push.")
+                return CadenceDecision(
+                    True, f"{available} bug fix{plural} ready to push.", "bug"
+                )
+            return CadenceDecision(
+                False, "Push policy per_bug: no resolved bugs pending push."
+            )
 
         if policy == "per_epic":
             available = self._available_event_for_consumer("epic", "push")
             if available > 0:
                 plural = "s" if available != 1 else ""
-                return CadenceDecision(True, f"{available} epic{plural} ready for integration.", "epic")
-            return CadenceDecision(False, "Push policy per_epic: no completed epics pending push.")
+                return CadenceDecision(
+                    True, f"{available} epic{plural} ready for integration.", "epic"
+                )
+            return CadenceDecision(
+                False, "Push policy per_epic: no completed epics pending push."
+            )
 
         if policy == "per_sprint":
             if not self.is_final_day():
@@ -268,10 +296,16 @@ class SprintManager:
             if self.push_executed_this_sprint:
                 return CadenceDecision(False, "Push already executed for this sprint.")
             if self.commits_since_last_push <= 0:
-                return CadenceDecision(False, "No new commits accumulated for sprint push.")
-            return CadenceDecision(True, "Final sprint day; pushing accumulated commits.", "sprint")
+                return CadenceDecision(
+                    False, "No new commits accumulated for sprint push."
+                )
+            return CadenceDecision(
+                True, "Final sprint day; pushing accumulated commits.", "sprint"
+            )
 
-        return CadenceDecision(True, f"Unknown push policy '{policy}'; defaulting to push.")
+        return CadenceDecision(
+            True, f"Unknown push policy '{policy}'; defaulting to push."
+        )
 
     def record_push(self, event_type: Optional[str], push_policy: str) -> None:
         self.record_step_execution("push", event_type)
@@ -291,22 +325,34 @@ class SprintManager:
             available = self._available_event_for_consumer("feature", "pr")
             if available > 0:
                 plural = "s" if available != 1 else ""
-                return CadenceDecision(True, f"{available} feature{plural} ready for PR.", "feature")
-            return CadenceDecision(False, "PR policy per_feature: no completed features pending.")
+                return CadenceDecision(
+                    True, f"{available} feature{plural} ready for PR.", "feature"
+                )
+            return CadenceDecision(
+                False, "PR policy per_feature: no completed features pending."
+            )
 
         if policy == "per_bug":
             available = self._available_event_for_consumer("bug", "pr")
             if available > 0:
                 plural = "s" if available != 1 else ""
-                return CadenceDecision(True, f"{available} bug fix{plural} ready for PR.", "bug")
-            return CadenceDecision(False, "PR policy per_bug: no resolved bugs pending PR.")
+                return CadenceDecision(
+                    True, f"{available} bug fix{plural} ready for PR.", "bug"
+                )
+            return CadenceDecision(
+                False, "PR policy per_bug: no resolved bugs pending PR."
+            )
 
         if policy == "per_epic":
             available = self._available_event_for_consumer("epic", "pr")
             if available > 0:
                 plural = "s" if available != 1 else ""
-                return CadenceDecision(True, f"{available} epic{plural} ready for showcase.", "epic")
-            return CadenceDecision(False, "PR policy per_epic: no completed epics pending PR.")
+                return CadenceDecision(
+                    True, f"{available} epic{plural} ready for showcase.", "epic"
+                )
+            return CadenceDecision(
+                False, "PR policy per_epic: no completed epics pending PR."
+            )
 
         if policy == "per_sprint":
             if not self.is_final_day():
@@ -317,10 +363,16 @@ class SprintManager:
             if self.pr_executed_this_sprint:
                 return CadenceDecision(False, "PR already created for this sprint.")
             if self.commits_since_last_pr <= 0:
-                return CadenceDecision(False, "No new commits accumulated for sprint PR.")
-            return CadenceDecision(True, "Final sprint day; preparing sprint PR.", "sprint")
+                return CadenceDecision(
+                    False, "No new commits accumulated for sprint PR."
+                )
+            return CadenceDecision(
+                True, "Final sprint day; preparing sprint PR.", "sprint"
+            )
 
-        return CadenceDecision(True, f"Unknown PR policy '{policy}'; defaulting to create PR.")
+        return CadenceDecision(
+            True, f"Unknown PR policy '{policy}'; defaulting to create PR."
+        )
 
     def record_pr(self, event_type: Optional[str], push_policy: str) -> None:
         self.record_step_execution("pr", event_type)

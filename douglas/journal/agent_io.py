@@ -90,7 +90,9 @@ def _prepare_environment(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     config: Mapping[str, Any] = data.pop("config", {}) or {}
     paths_cfg: Mapping[str, Any] = config.get("paths", {}) or {}
 
-    inbox_dir = data.pop("inbox_dir", None) or paths_cfg.get("inbox_dir", _DEFAULT_INBOX_DIR)
+    inbox_dir = data.pop("inbox_dir", None) or paths_cfg.get(
+        "inbox_dir", _DEFAULT_INBOX_DIR
+    )
     sprint_prefix = data.pop("sprint_prefix", None) or paths_cfg.get(
         "sprint_prefix", _DEFAULT_SPRINT_PREFIX
     )
@@ -102,7 +104,9 @@ def _prepare_environment(meta: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         details = data.pop("summary_details", None)
     if isinstance(details, Mapping):
         details = dict(details)
-    elif isinstance(details, Sequence) and not isinstance(details, (str, bytes, bytearray)):
+    elif isinstance(details, Sequence) and not isinstance(
+        details, (str, bytes, bytearray)
+    ):
         details = list(details)
     elif details is None:
         details = {}
@@ -202,7 +206,9 @@ def _format_details(details: Any) -> List[str]:
             lines.extend(_format_detail_value(label, value))
         return lines
 
-    if isinstance(details, Sequence) and not isinstance(details, (str, bytes, bytearray)):
+    if isinstance(details, Sequence) and not isinstance(
+        details, (str, bytes, bytearray)
+    ):
         return [f"- {str(item).strip()}" for item in details if str(item).strip()]
 
     return [f"- {str(details).strip()}"]
@@ -258,5 +264,3 @@ def _stringify_context(value: Any) -> str:
         parts = [str(item).strip() for item in value if str(item).strip()]
         return "\n".join(parts) if parts else "(no additional context provided)"
     return str(value)
-
-

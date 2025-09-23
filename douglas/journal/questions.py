@@ -125,7 +125,9 @@ def scan_for_answers(context_data: Dict[str, Any]) -> List[Question]:
         sections = _parse_sections(body)
         question = Question(
             id=str(front_matter.get("id") or path.stem),
-            sprint=_coerce_int(front_matter.get("sprint"), default=env["default_sprint"]),
+            sprint=_coerce_int(
+                front_matter.get("sprint"), default=env["default_sprint"]
+            ),
             role=str(front_matter.get("role", "")),
             topic=str(front_matter.get("topic", "")),
             status=status,
@@ -151,7 +153,9 @@ def archive_question(question: Question) -> Path:
     """Archive a question after recording the agent follow-up."""
 
     if not question.agent_follow_up or not question.agent_follow_up.strip():
-        raise ValueError("Agent follow-up must be provided before archiving the question.")
+        raise ValueError(
+            "Agent follow-up must be provided before archiving the question."
+        )
 
     updated_front_matter = dict(question.front_matter)
     updated_front_matter.setdefault("id", question.id)
@@ -198,12 +202,16 @@ def _prepare_environment(context_data: Dict[str, Any]) -> Dict[str, Any]:
     paths = config.get("paths", {}) or {}
 
     project_root = Path(context_data.get("project_root", ".")).resolve()
-    questions_dir = project_root / str(paths.get("questions_dir", "user-portal/questions"))
+    questions_dir = project_root / str(
+        paths.get("questions_dir", "user-portal/questions")
+    )
     archive_dir = project_root / str(
         paths.get("questions_archive_dir", "user-portal/questions-archive")
     )
     filename_pattern = str(
-        (config.get("qna", {}) or {}).get("filename_pattern", "sprint-{sprint}-{role}-{id}.md")
+        (config.get("qna", {}) or {}).get(
+            "filename_pattern", "sprint-{sprint}-{role}-{id}.md"
+        )
     )
     sprint_prefix = _resolve_sprint_prefix(config)
 
@@ -349,7 +357,9 @@ def _log_question_to_summary(
 ) -> None:
     role_dir = _normalize_role_key(role)
     sprint_folder = f"{sprint_prefix}{sprint}"
-    summary_dir = project_root / "ai-inbox" / "sprints" / sprint_folder / "roles" / role_dir
+    summary_dir = (
+        project_root / "ai-inbox" / "sprints" / sprint_folder / "roles" / role_dir
+    )
     summary_dir.mkdir(parents=True, exist_ok=True)
     summary_path = summary_dir / "summary.md"
 

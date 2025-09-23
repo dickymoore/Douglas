@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 from douglas.sprint_manager import CadenceDecision
 
@@ -139,7 +139,9 @@ class CadenceManager:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def evaluate_step(self, step_name: str, step_config: Dict[str, Any]) -> CadenceDecision:
+    def evaluate_step(
+        self, step_name: str, step_config: Dict[str, Any]
+    ) -> CadenceDecision:
         """Return the cadence decision for a loop step."""
 
         role, activity = self._resolve_role_activity(step_name, step_config)
@@ -158,7 +160,9 @@ class CadenceManager:
             if default_cadence is not None:
                 cadence_value = default_cadence
 
-        context = self._build_context(step_name, role, activity, cadence_value, cadence_source)
+        context = self._build_context(
+            step_name, role, activity, cadence_value, cadence_source
+        )
         self.last_context = context
 
         should_execute = should_run_step(role, activity, context)

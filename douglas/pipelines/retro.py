@@ -48,7 +48,9 @@ def run_retro(context: Dict[str, Any]) -> RetroResult:
     wins = _coerce_string_list(parsed.get("wins"))
     pain_points = _coerce_string_list(parsed.get("pain_points"))
     risks = _coerce_string_list(parsed.get("risks"))
-    role_actions = _normalize_role_instructions(parsed.get("role_instructions"), role_documents)
+    role_actions = _normalize_role_instructions(
+        parsed.get("role_instructions"), role_documents
+    )
     backlog_items = _normalize_backlog_items(parsed.get("pre_feature_items"))
 
     retro_config = config.get("retro", {}) or {}

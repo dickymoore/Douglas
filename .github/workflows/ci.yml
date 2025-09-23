@@ -21,9 +21,9 @@ jobs:
         pip install -e .[dev]
     - name: Run lint
       run: |
-        ruff .
+        ruff check .
         black --check .
-        isort --check .
+        isort --check-only .
     - name: Run type checks
       run: |
         mypy .
