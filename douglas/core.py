@@ -58,6 +58,9 @@ class DouglasSystemExit(SystemExit):
         self.douglas_failure_handled: bool = handled
 
 
+TLS_ERROR_PATTERN = re.compile(r"\btls\b[^\n]*(error|failed|failure|handshake|protocol)")
+
+
 class Douglas:
     DEFAULT_COMMIT_MESSAGE = "chore: automated commit"
     SUPPORTED_PUSH_POLICIES = {
@@ -1369,10 +1372,7 @@ class Douglas:
         if any(marker in combined_output for marker in network_markers):
             return True
 
-        tls_error_pattern = re.compile(
-            r"\btls\b[^\n]*(error|failed|failure|handshake|protocol)"
-        )
-        return bool(tls_error_pattern.search(combined_output))
+        return bool(TLS_ERROR_PATTERN.search(combined_output))
 
     def _format_command_output(
         self,
