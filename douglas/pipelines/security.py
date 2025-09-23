@@ -85,7 +85,9 @@ def run_security(
 
     entries_with_flags: list[tuple[ToolEntry, bool]] = []
     if tools is None:
-        entries_with_flags.extend((tool_name, True) for tool_name in _DEFAULT_SECURITY_TOOLS)
+        entries_with_flags.extend(
+            (tool_name, True) for tool_name in _DEFAULT_SECURITY_TOOLS
+        )
     else:
         entries_with_flags.extend((entry, False) for entry in tools)
 
@@ -157,7 +159,7 @@ def _prepare_default_paths(default_paths: Optional[Iterable[str]]) -> list[str]:
         return ["."]
     paths = [str(path) for path in default_paths if str(path).strip()]
     return paths or ["."]
-    
+
 
 def _normalise_single_entry(
     entry: ToolEntry, default_paths: list[str], optional_default: bool
@@ -292,9 +294,7 @@ def _run_tool(spec: _SecurityToolSpec) -> SecurityToolResult:
             text=True,
         )
     except FileNotFoundError as exc:  # pragma: no cover - defensive logging path
-        message = (
-            f"Security tool '{spec.command[0]}' is not installed or not on PATH."
-        )
+        message = f"Security tool '{spec.command[0]}' is not installed or not on PATH."
         raise SecurityCheckError(
             message,
             tool=spec.name,

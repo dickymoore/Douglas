@@ -52,7 +52,9 @@ def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):
         def init_project(self, project_name: str, non_interactive: bool = False):
             type(self).init_project_calls.append((project_name, non_interactive))
 
-    monkeypatch.setattr(cli_module, "_load_default_init_config", lambda: sentinel_config)
+    monkeypatch.setattr(
+        cli_module, "_load_default_init_config", lambda: sentinel_config
+    )
     monkeypatch.setattr(cli_module, "Douglas", DummyDouglas)
     DummyDouglas.init_calls = []
     DummyDouglas.init_project_calls = []
