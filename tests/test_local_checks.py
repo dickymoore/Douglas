@@ -206,6 +206,43 @@ def test_run_local_checks_success_records_history(monkeypatch, tmp_path):
     assert any(entry["event"] == "local_checks_pass" for entry in entries)
 
 
+def test_semgrep_network_failure_is_skipped(monkeypatch, tmp_path):
+    config_path = _init_repo(tmp_path, steps=[{"name": "push"}], exit_conditions=[])
+
+    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: StaticProvider())
+    douglas = Douglas(config_path)
+
+    semgrep_command = ["semgrep", "--config", "auto"]
+    monkeypatch.setattr(
+        Douglas, "_discover_local_check_commands", lambda self: [semgrep_command]
+    )
+
+    _patch_subprocess_for_command(
+        monkeypatch,
+        semgrep_command,
+        returncode=2,
+        stderr=(
+            "requests.exceptions.ConnectionError: HTTPSConnectionPool(host='semgrep.dev', "
+            "port=443): Max retries exceeded with url: /api/... (Caused by ProxyError('Cannot "
+            "connect to proxy.'))"
+        ),
+    )
+
+    success, logs = douglas._run_local_checks()
+
+    assert success is True
+    assert "Semgrep command failed" in logs
+
+    history_path = tmp_path / "ai-inbox" / "history.jsonl"
+    assert history_path.exists()
+    events = [
+        json.loads(line)["event"]
+        for line in history_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert "local_checks_skip" in events
+
+
 def test_log_excerpt_limit_respects_configuration(monkeypatch, tmp_path):
     config_path = _init_repo(tmp_path, steps=[{"name": "push"}], exit_conditions=[])
 
