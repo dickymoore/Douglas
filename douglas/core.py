@@ -2861,7 +2861,13 @@ class Douglas:
             # Reserved for future interactive prompts; currently all scaffolding is non-interactive.
             pass
 
-        scaffold_name = name or (target_path.name or "DouglasProject")
+        if name:
+            scaffold_name = name
+        else:
+            resolved_name = target_path.resolve().name
+            if not resolved_name:
+                resolved_name = Path.cwd().resolve().name
+            scaffold_name = resolved_name or "DouglasProject"
         normalized_template = (template or "python").strip().lower()
         if normalized_template not in {"python", "blank"}:
             print(
