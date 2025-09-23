@@ -1,6 +1,6 @@
+import sys
 from pathlib import Path
 from types import SimpleNamespace
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -61,3 +61,23 @@ def test_extract_responses_text_handles_model_dump_payload() -> None:
     text = provider._extract_responses_text(response)
 
     assert text == "Alpha\nBeta"
+
+
+def test_extract_responses_text_handles_output_segments() -> None:
+    provider = _make_provider()
+
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                content=[
+                    SimpleNamespace(text=SimpleNamespace(value="Gamma")),
+                    {"type": "output_text", "text": {"value": "Delta"}},
+                ]
+            ),
+            {"content": [{"text": "Epsilon"}, {"value": "Zeta"}]},
+        ]
+    )
+
+    text = provider._extract_responses_text(response)
+
+    assert text == "Gamma\nDelta\nEpsilon\nZeta"

@@ -166,10 +166,22 @@ class OpenAIProvider(LLMProvider):
                     text_value = block.get("text")
                     if text_value is None:
                         text_value = block.get("value")
+                    if text_value is None:
+                        text_value = block.get("content")
+                    if text_value is None:
+                        text_value = block.get("output_text")
+                    if text_value is None:
+                        text_value = block
                 else:
                     text_value = getattr(block, "text", None)
                     if text_value is None:
                         text_value = getattr(block, "value", None)
+                    if text_value is None:
+                        text_value = getattr(block, "content", None)
+                    if text_value is None:
+                        text_value = getattr(block, "output_text", None)
+                    if text_value is None:
+                        continue
 
                 segment = self._coerce_text_value(text_value)
                 if segment:
@@ -196,7 +208,7 @@ class OpenAIProvider(LLMProvider):
             return self._normalize_response_content(value)
 
         if isinstance(value, dict):
-            for key in ("value", "text", "content"):
+            for key in ("value", "text", "content", "output_text"):
                 if key in value:
                     result = self._coerce_text_value(value[key])
                     if result:
@@ -206,7 +218,7 @@ class OpenAIProvider(LLMProvider):
         if value is None:
             return ""
 
-        for attr in ("value", "text", "content"):
+        for attr in ("value", "text", "content", "output_text"):
             if hasattr(value, attr):
                 result = self._coerce_text_value(getattr(value, attr))
                 if result:
@@ -217,6 +229,10 @@ class OpenAIProvider(LLMProvider):
 
     def _extract_responses_text(self, response: Any) -> str:
         text = self._normalize_response_content(getattr(response, "output_text", None))
+        if text:
+            return text
+
+        text = self._normalize_response_content(getattr(response, "output", None))
         if text:
             return text
 
@@ -246,6 +262,10 @@ class OpenAIProvider(LLMProvider):
                 if text:
                     return text
 
+            text = self._normalize_response_content(response.get("output"))
+            if text:
+                return text
+
         # Defensive fallback: try to extract from model_dump if available
         payload = None
         if hasattr(response, "model_dump"):
@@ -261,6 +281,10 @@ class OpenAIProvider(LLMProvider):
                 text = self._normalize_response_content(content)
                 if text:
                     return text
+
+            text = self._normalize_response_content(payload.get("output"))
+            if text:
+                return text
 
         return ""
 

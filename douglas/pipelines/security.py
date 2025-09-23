@@ -16,6 +16,7 @@ __all__ = [
 
 ToolEntry = Union[str, Sequence[str], Mapping[str, object]]
 
+
 @dataclass(slots=True)
 class SecurityToolResult:
     name: str
@@ -24,6 +25,7 @@ class SecurityToolResult:
     stderr: str
     exit_code: int
 
+
 @dataclass(slots=True)
 class SecurityReport:
     results: list[SecurityToolResult]
@@ -31,13 +33,18 @@ class SecurityReport:
     def tool_names(self) -> list[str]:
         return [result.name for result in self.results]
 
+
 class SecurityConfigurationError(ValueError): ...
+
+
 class SecurityCheckError(RuntimeError): ...
+
 
 @dataclass(slots=True)
 class _SecurityToolSpec:
     name: str
     command: list[str]
+
 
 def run_security(
     tools: Optional[Iterable[ToolEntry]] = None,
@@ -50,6 +57,7 @@ def run_security(
         results.append(_run_tool(spec))
     print(f"Security checks completed: {', '.join(r.name for r in results)}.")
     return SecurityReport(results)
+
 
 def _normalise_tools(
     tools: Optional[Iterable[ToolEntry]], default_paths: Optional[Iterable[str]]
@@ -200,9 +208,7 @@ def _run_tool(spec: _SecurityToolSpec) -> SecurityToolResult:
             text=True,
         )
     except FileNotFoundError as exc:  # pragma: no cover - defensive logging path
-        message = (
-            f"Security tool '{spec.command[0]}' is not installed or not on PATH."
-        )
+        message = f"Security tool '{spec.command[0]}' is not installed or not on PATH."
         raise SecurityCheckError(
             message,
             tool=spec.name,
