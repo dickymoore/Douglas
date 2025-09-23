@@ -729,11 +729,7 @@ class Douglas:
 
         if step_name == 'push':
             print("Running push step...")
-            if (
-                self.push_policy == 'per_sprint'
-                and 'demo' in self._configured_steps
-                and 'demo' not in self._executed_step_names
-            ):
+            if self._release_blocked_by_pending_demo():
                 print("Skipping push step: awaiting sprint demo before release.")
                 self._loop_outcomes['local_checks'] = None
                 return StepExecutionResult(False, False, None, already_recorded)
@@ -833,11 +829,7 @@ class Douglas:
 
         if step_name == 'pr':
             print("Running pr step...")
-            if (
-                self.push_policy == 'per_sprint'
-                and 'demo' in self._configured_steps
-                and 'demo' not in self._executed_step_names
-            ):
+            if self._release_blocked_by_pending_demo():
                 print("Skipping pr step: awaiting sprint demo before opening PR.")
                 return StepExecutionResult(False, False, None, already_recorded)
             decision = self.sprint_manager.should_open_pr(self.push_policy)
@@ -907,6 +899,14 @@ class Douglas:
 
         print(f"Step '{step_name}' is not automated; remember to handle it manually when prompted.")
         return StepExecutionResult(True, True, cadence_decision.event_type, already_recorded)
+
+    def _release_blocked_by_pending_demo(self) -> bool:
+        """Return True when release actions must wait for the demo step."""
+        return (
+            self.push_policy == 'per_sprint'
+            and 'demo' in self._configured_steps
+            and 'demo' not in self._executed_step_names
+        )
 
     def _commits_ready_for_push(self, event_type: Optional[str]) -> bool:
         if event_type in {'feature', 'bug', 'epic'}:
