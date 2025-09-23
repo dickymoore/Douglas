@@ -152,9 +152,7 @@ Each pipeline module focuses on a single concern:
 - `pipelines.test.run_tests()` launches `pytest -q` and returns non-zero status on failure.[`douglas/pipelines/test.py`](douglas/pipelines/test.py)
 - `pipelines.demo.write_demo_pack()` renders Markdown demo decks using Jinja-style templates, enumerating commits, role highlights, how-to-run instructions, limitations, and next steps.[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
 - `pipelines.retro.run_retro()` builds a JSON prompt for the LLM from sprint journals, parses action items/wins/risks, writes per-role instruction sheets, and appends backlog entries.[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
-  - `pipelines.security.run_security()` runs available security scanners (Bandit by default, Semgrep when present), surfaces actionable diagnostics, and fails fast when no tooling can run.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
-- `pipelines.security.run_security()` runs Bandit when available (skipping it gracefully if the tool is missing) and accepts custom commands so teams can compose broader security suites.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
-- `pipelines.security.run_security()` normalises tool aliases or explicit commands, runs Bandit/Semgrep/custom checks with captured output, and raises descriptive errors when findings surface.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
+- `pipelines.security.run_security()` normalises tool aliases or explicit commands, runs Bandit/Semgrep/custom checks with captured output, surfaces actionable diagnostics, and fails fast when no tooling is available—skipping gracefully if prerequisites are missing.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 
 ### Providers
 
@@ -240,9 +238,11 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
    - Export `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` or `OPENAI_BASE_URL`) to enable the bundled OpenAI integration.
    - For offline experimentation you can monkeypatch `Douglas.create_llm_provider` to return a simple object with a `generate_code(prompt)` method that prints the prompt and returns deterministic output (the test suite demonstrates this pattern). The built-in provider will also fall back to a local stub whenever credentials or the SDK are unavailable.
 
-5. **Run the development loop from the CLI**
-   - Validate configuration and environment prerequisites:
 5. **Run the development loop**
+   - Validate configuration and environment prerequisites:
+     ```bash
+     douglas check
+     ```
    - Use the CLI entry point exposed by Typer:
      ```bash
      douglas run
@@ -278,12 +278,10 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
 
 ## Limitations and open gaps
 
-- `OpenAIProvider` integrates with the OpenAI SDK (with graceful fallbacks); pluggable support for additional providers remains future work.
-- The security pipeline expects at least one local security tool (Bandit by default, Semgrep when available). Install the tooling or configure custom commands to keep the guardrails effective.
+- `OpenAIProvider` integrates with the OpenAI SDK (with graceful fallbacks); broader support for additional LLM vendors remains future work.
+- The security pipeline expects at least one local security tool (Bandit by default, Semgrep when available). Install the tooling or configure custom commands to keep the guardrails effective while expanded first-class integrations (Semgrep, pip-audit, custom policies) are still on the roadmap.
 - Additional console subcommands beyond `run`, `check`, and `init` (for operations such as `doctor`) are still exposed via the Python API only.
 - The CLI currently exposes coarse-grained orchestration commands (`run`, `check`, `init`); advanced scenarios such as running a single step or dry-run modes remain future enhancements.
-- `OpenAIProvider` integrates with the OpenAI SDK (with graceful fallbacks), but pluggable support for additional LLM vendors is still on the roadmap.
-- The security pipeline defaults to Bandit and relies on locally installed tooling; expanding first-class integrations for Semgrep, pip-audit, and custom policies is planned.
 - Douglas has not yet been published to PyPI while packaging, release automation, and dependency matrices continue to stabilize.
 
 Despite these gaps, the core orchestration, cadence handling, journaling, retro/demo generation, and release automation logic are fully implemented and thoroughly unit tested under `tests/`.
