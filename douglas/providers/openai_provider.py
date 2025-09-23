@@ -59,8 +59,7 @@ class OpenAIProvider(LLMProvider):
             return True
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
             print(
-                "Warning: Failed to initialise OpenAI client via the modern SDK: "
-                f"{exc}"
+                f"Warning: Failed to initialise OpenAI client via the modern SDK: {exc}"
             )
             self._client = None
             return False
@@ -86,8 +85,7 @@ class OpenAIProvider(LLMProvider):
             self._use_responses_api = False
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
             print(
-                "Warning: Failed to initialise OpenAI client via the legacy SDK: "
-                f"{exc}"
+                f"Warning: Failed to initialise OpenAI client via the legacy SDK: {exc}"
             )
             self._client = None
 
@@ -324,7 +322,11 @@ class OpenAIProvider(LLMProvider):
                 if isinstance(choices[0], dict)
                 else getattr(choices[0], "message", None)
             )
-            content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+            content = (
+                message.get("content")
+                if isinstance(message, dict)
+                else getattr(message, "content", None)
+            )
             normalized = self._normalize_response_content(content)
             if normalized:
                 return normalized

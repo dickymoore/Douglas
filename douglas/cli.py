@@ -169,9 +169,7 @@ def check(
 
 @app.command()
 def init(
-    project_name: str = typer.Argument(
-        ..., help="Directory name for the new project."
-    ),
+    project_name: str = typer.Argument(..., help="Directory name for the new project."),
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
@@ -199,4 +197,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

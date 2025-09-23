@@ -15,8 +15,6 @@ class LLMProvider(ABC):
             model = options.get("model")
             api_key = options.get("api_key")
             base_url = options.get("base_url") or options.get("api_base")
-            return OpenAIProvider(
-                model_name=model, api_key=api_key, base_url=base_url
-            )
+            return OpenAIProvider(model_name=model, api_key=api_key, base_url=base_url)
 
         raise ValueError(f"Unsupported LLM provider: {name}")
