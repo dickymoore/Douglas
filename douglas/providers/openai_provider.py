@@ -170,7 +170,6 @@ class OpenAIProvider(LLMProvider):
         content: Any,
         *,
         depth: int = 0,
-        seen: Optional[set[int]] = None,
         reference_chain_ids: Optional[set[int]] = None,
     ) -> str:
         """Normalise nested response content into a string with cycle protection."""
@@ -180,9 +179,6 @@ class OpenAIProvider(LLMProvider):
 
         if depth > self._MAX_NORMALIZATION_DEPTH:
             return ""
-
-        if seen is None:
-            seen = set()
 
         if reference_chain_ids is None:
             reference_chain_ids = set()
@@ -199,11 +195,8 @@ class OpenAIProvider(LLMProvider):
             content, (str, bytes, bytearray)
         ):
             obj_id = id(content)
-            if obj_id in seen:
-                return ""
             if obj_id in reference_chain_ids:
                 return ""
-            seen.add(obj_id)
             reference_chain_ids.add(obj_id)
             try:
                 pieces: list[str] = []
@@ -211,7 +204,6 @@ class OpenAIProvider(LLMProvider):
                     piece = self._normalize_response_content(
                         item,
                         depth=depth + 1,
-                        seen=seen,
                         reference_chain_ids=reference_chain_ids,
                     )
                     if piece:
@@ -220,13 +212,11 @@ class OpenAIProvider(LLMProvider):
                     return "\n".join(pieces).strip()
                 return ""
             finally:
-                seen.discard(obj_id)
                 reference_chain_ids.discard(obj_id)
 
         return self._coerce_text_value(
             content,
             depth=depth + 1,
-            seen=seen,
             reference_chain_ids=reference_chain_ids,
         )
 
@@ -235,7 +225,6 @@ class OpenAIProvider(LLMProvider):
         value: Any,
         *,
         depth: int = 0,
-        seen: Optional[set[int]] = None,
         reference_chain_ids: Optional[set[int]] = None,
     ) -> str:
         """Attempt to coerce nested response text blocks into a string."""
@@ -246,19 +235,13 @@ class OpenAIProvider(LLMProvider):
         if depth > self._MAX_NORMALIZATION_DEPTH:
             return ""
 
-        if seen is None:
-            seen = set()
-
         if reference_chain_ids is None:
             reference_chain_ids = set()
 
         obj_id = id(value)
-        if obj_id in seen:
-            return ""
         if obj_id in reference_chain_ids:
             return ""
 
-        seen.add(obj_id)
         reference_chain_ids.add(obj_id)
         try:
             if isinstance(value, str):
@@ -277,7 +260,6 @@ class OpenAIProvider(LLMProvider):
                     result = self._normalize_response_content(
                         item,
                         depth=depth + 1,
-                        seen=seen,
                         reference_chain_ids=reference_chain_ids,
                     )
                     if result:
@@ -299,7 +281,6 @@ class OpenAIProvider(LLMProvider):
                         result = self._normalize_response_content(
                             value[key],
                             depth=depth + 1,
-                            seen=seen,
                             reference_chain_ids=reference_chain_ids,
                         )
                         if result:
@@ -310,7 +291,6 @@ class OpenAIProvider(LLMProvider):
                     result = self._normalize_response_content(
                         nested_value,
                         depth=depth + 1,
-                        seen=seen,
                         reference_chain_ids=reference_chain_ids,
                     )
                     if result:
@@ -330,7 +310,6 @@ class OpenAIProvider(LLMProvider):
                     result = self._normalize_response_content(
                         getattr(value, attr),
                         depth=depth + 1,
-                        seen=seen,
                         reference_chain_ids=reference_chain_ids,
                     )
                     if result:
@@ -344,7 +323,6 @@ class OpenAIProvider(LLMProvider):
                     result = self._normalize_response_content(
                         item,
                         depth=depth + 1,
-                        seen=seen,
                         reference_chain_ids=reference_chain_ids,
                     )
                     if result:
@@ -355,7 +333,6 @@ class OpenAIProvider(LLMProvider):
             text = str(value).strip()
             return text if text else ""
         finally:
-            seen.discard(obj_id)
             reference_chain_ids.discard(obj_id)
 
     def _extract_responses_text(self, response: Any) -> str:
