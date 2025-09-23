@@ -113,43 +113,44 @@ class OpenAIProvider(LLMProvider):
         return text
 
     def _extract_responses_text(self, response: Any) -> str:
-        # Try to extract text from standard OpenAI completion response
-        choices = None
-        if hasattr(response, "choices"):
-            try:
-                choices = response.choices
-            except Exception:
-                choices = None
-        elif isinstance(response, dict):
-            choices = response.get("choices")
-
+        # Try to extract from attribute-based response (OpenAI SDK object)
+        choices = getattr(response, "choices", None)
         if choices and len(choices) > 0:
-            # For completion endpoint: choices[0].text
-            if isinstance(choices[0], dict):
-                text = choices[0].get("text")
+            message = (
+                choices[0].get("message")
+                if isinstance(choices[0], dict)
+                else getattr(choices[0], "message", None)
+            )
+            if isinstance(message, dict):
+                content = message.get("content")
             else:
-                text = getattr(choices[0], "text", None)
-            if text and isinstance(text, str):
-                return text.strip()
-        # Attempt to normalise via dict representation for forward compatibility.
+                content = getattr(message, "content", None)
+            if isinstance(content, str):
+                return content.strip()
+
+        # Try to extract from dict-based response
+        if isinstance(response, dict):
+            choices = response.get("choices") or []
+            if choices and len(choices) > 0:
+                message = choices[0].get("message", {})
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content.strip()
+
+        # Defensive fallback: try to extract from model_dump if available
         payload = None
         if hasattr(response, "model_dump"):
             try:
                 payload = response.model_dump()
             except Exception:  # pragma: no cover - defensive fallback
                 payload = None
-        elif isinstance(response, dict):
-            payload = response
-
-        if payload:
-            outputs = payload.get("output") or payload.get("outputs") or []
-            collected: list[str] = []
-            for item in outputs:
-                content = None
-                if isinstance(item, dict):
-                    content = item.get("content")
-                else:
-                    content = getattr(item, "content", None)
+        if isinstance(payload, dict):
+            choices = payload.get("choices") or []
+            if choices and len(choices) > 0:
+                message = choices[0].get("message", {})
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content.strip()
                 if isinstance(content, list):
                     for block in content:
                         text_value = (
