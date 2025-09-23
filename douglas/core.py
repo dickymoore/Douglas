@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,9 +51,14 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
-    def __init__(self, config_path="douglas.yaml"):
+    def __init__(self, config_path="douglas.yaml", config_data: Optional[Dict[str, Any]] = None):
+        if config_path is None:
+            config_path = "douglas.yaml"
         self.config_path = Path(config_path)
-        self.config = self.load_config(self.config_path)
+        if config_data is None:
+            self.config = self.load_config(self.config_path)
+        else:
+            self.config = deepcopy(config_data)
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get("project", {}).get("name", "")
         self.lm_provider = self.create_llm_provider()

@@ -2,9 +2,11 @@ import sys
 from pathlib import Path
 
 import yaml
+from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from douglas.cli import app
 from douglas.core import Douglas
 
 
@@ -111,3 +113,18 @@ def test_init_project_respects_language_override(monkeypatch, tmp_path):
     assert scaffold_config["push_policy"] == "per_feature"
     assert scaffold_config["sprint"]["length_days"] == 10
     assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
+
+
+def test_cli_init_allows_missing_config(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: object())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        ["init", "demo", "--non-interactive"],
+        catch_exceptions=False,
+    )
+
+    assert result.exit_code == 0
+    assert (tmp_path / "demo" / "douglas.yaml").exists()

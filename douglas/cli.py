@@ -2,21 +2,66 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+import importlib.resources as resources
 from pathlib import Path
-from typing import Optional
+from string import Template
+from typing import Callable, Optional
 
 import typer
+import yaml
 
 from douglas.core import Douglas
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
 
 
-def _create_orchestrator(config_path: Optional[Path]) -> Douglas:
+def _load_default_init_config() -> dict:
+    """Load the seed configuration used when bootstrapping a new project."""
+
+    try:
+        template_path = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+        template_text = template_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        # Fallback to a minimal configuration when templates are unavailable.
+        return {
+            "project": {"language": "python"},
+            "ai": {"provider": "openai", "model": "gpt-4"},
+            "history": {
+                "max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH,
+            },
+        }
+
+    rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
+    config = yaml.safe_load(rendered) or {}
+
+    history_cfg = config.setdefault("history", {})
+    history_cfg.setdefault(
+        "max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH
+    )
+
+    return config
+
+
+def _create_orchestrator(
+    config_path: Optional[Path], *, default_config_factory: Optional[Callable[[], dict]] = None
+) -> Douglas:
     """Instantiate the Douglas orchestrator using an optional config override."""
-    if config_path is None:
-        return Douglas()
-    return Douglas(config_path=config_path)
+    if config_path is not None:
+        return Douglas(config_path=config_path)
+
+    inferred_path = Path("douglas.yaml")
+    if inferred_path.exists() or default_config_factory is None:
+        return Douglas(inferred_path)
+
+    config_data = default_config_factory()
+    if config_data is None:
+        return Douglas(inferred_path)
+
+    return Douglas(
+        config_path=inferred_path,
+        config_data=deepcopy(config_data),
+    )
 
 
 @app.command()
@@ -78,7 +123,10 @@ def init(
 ) -> None:
     """Scaffold a new repository using Douglas templates."""
 
-    orchestrator = _create_orchestrator(config)
+    orchestrator = _create_orchestrator(
+        config,
+        default_config_factory=_load_default_init_config,
+    )
     orchestrator.init_project(project_name, non_interactive=non_interactive)
 
 
