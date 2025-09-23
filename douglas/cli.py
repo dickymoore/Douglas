@@ -89,10 +89,10 @@ def _create_orchestrator(
                 "default configuration factory returned None."
             )
 
-        return Douglas(config_path=inferred_path, config=config_data)
+        return Douglas(config_path=inferred_path, config_data=config_data)
 
     if allow_missing_config:
-        return Douglas(config_path=inferred_path, config={})
+        return Douglas(config_path=inferred_path, config_data={})
 
     raise FileNotFoundError(
         "No douglas.yaml configuration file found. Run `douglas init "
