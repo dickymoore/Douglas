@@ -36,7 +36,9 @@ def _create_orchestrator(
         )
     else:
         raise FileNotFoundError(
-            f"Configuration file '{inferred_path}' does not exist and no default configuration was provided."
+            f"Configuration file '{inferred_path}' does not exist and no default configuration was provided.\n"
+            "To create a new project with a default configuration, run:\n"
+            "    douglas init <project_name>\n"
         )
 
 
