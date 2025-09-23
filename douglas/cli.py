@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import importlib.resources as resources
 from pathlib import Path
 from string import Template
@@ -23,7 +22,8 @@ def _load_default_init_config() -> dict:
         template_path = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
         template_text = template_path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
-        # Fallback to a minimal configuration when the template file is missing or cannot be read due to I/O errors.
+        # Fallback to a minimal configuration when the template file is missing
+        # or cannot be read due to I/O errors.
         return {
             "project": {"language": "python"},
             "ai": {"provider": "openai", "model": "gpt-4"},
@@ -32,49 +32,20 @@ def _load_default_init_config() -> dict:
             },
         }
 
-    rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
+    rendered = Template(template_text).safe_substitute(
+        PROJECT_NAME="DouglasProject"
+    )
     config = yaml.safe_load(rendered) or {}
 
     history_cfg = config.setdefault("history", {})
-    history_cfg.setdefault(
-        "max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH
-    )
+    history_cfg.setdefault("max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH)
 
     return config
 
 
-def _create_orchestrator(
-    config_path: Optional[Path], *, default_config_factory: Optional[Callable[[], dict]] = None
-) -> Douglas:
-    """Instantiate the Douglas orchestrator using an optional config override."""
-    if config_path is not None:
-        return Douglas(config_path=config_path)
-
-    inferred_path = Path("douglas.yaml")
-    if inferred_path.exists():
-        return Douglas(inferred_path)
-    if default_config_factory is None:
-        raise FileNotFoundError(
-            "No douglas.yaml configuration file found. Run `douglas init <project-name>` to create a new project or ensure you are in a valid Douglas project directory."
-        )
-
-    config_data = default_config_factory()
-    if config_data is None:
-        raise FileNotFoundError(
-            f"No configuration file found at '{inferred_path}' and the default configuration factory returned None."
-        )
-
-    return Douglas(
-        config_path=inferred_path,
-        config_data=deepcopy(config_data),
-    )
-
-
-@app.command()
-def run(
-    config: Optional[Path] = typer.Option(
 def _config_option(help_text: str) -> Optional[Path]:
     """Shared configuration file option declaration for CLI commands."""
+
     return typer.Option(
         None,
         "--config",
@@ -88,9 +59,13 @@ def _config_option(help_text: str) -> Optional[Path]:
 
 
 def _create_orchestrator(
-    config_path: Optional[Path], *, allow_missing_config: bool = False
+    config_path: Optional[Path],
+    *,
+    default_config_factory: Optional[Callable[[], dict]] = None,
+    allow_missing_config: bool = False,
 ) -> Douglas:
     """Instantiate the Douglas orchestrator using an optional config override."""
+
     if config_path is not None:
         return Douglas(config_path=config_path)
 
@@ -98,10 +73,32 @@ def _create_orchestrator(
     if inferred_path.exists():
         return Douglas(config_path=inferred_path)
 
+    if default_config_factory is not None:
+        try:
+            config_data = default_config_factory()
+        except Exception as exc:  # pragma: no cover - defensive failure mode
+            raise FileNotFoundError(
+                "No configuration file found at "
+                f"'{inferred_path}' and the default configuration factory "
+                f"raised {exc.__class__.__name__}: {exc}."
+            ) from exc
+
+        if config_data is None:
+            raise FileNotFoundError(
+                f"No configuration file found at '{inferred_path}' and the "
+                "default configuration factory returned None."
+            )
+
+        return Douglas(config_path=inferred_path, config=config_data)
+
     if allow_missing_config:
         return Douglas(config_path=inferred_path, config={})
 
-    return Douglas(config_path=inferred_path)
+    raise FileNotFoundError(
+        "No douglas.yaml configuration file found. Run `douglas init "
+        "<project-name>` to create a new project or ensure you are in a "
+        "valid Douglas project directory."
+    )
 
 
 @app.command()
@@ -111,6 +108,7 @@ def run(
     ),
 ) -> None:
     """Execute the configured Douglas development loop."""
+
     orchestrator = _create_orchestrator(config)
     orchestrator.run_loop()
 
@@ -122,13 +120,16 @@ def check(
     ),
 ) -> None:
     """Validate configuration and environment prerequisites."""
+
     orchestrator = _create_orchestrator(config)
     orchestrator.check()
 
 
 @app.command()
 def init(
-    project_name: str = typer.Argument(..., help="Directory name for the new project."),
+    project_name: str = typer.Argument(
+        ..., help="Directory name for the new project."
+    ),
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
@@ -143,13 +144,14 @@ def init(
     orchestrator = _create_orchestrator(
         config,
         default_config_factory=_load_default_init_config,
+        allow_missing_config=True,
     )
-    orchestrator = _create_orchestrator(config, allow_missing_config=True)
     orchestrator.init_project(project_name, non_interactive=non_interactive)
 
 
 def main() -> None:
     """Entry point used by the console script."""
+
     app()
 
 
