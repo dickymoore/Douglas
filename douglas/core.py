@@ -59,7 +59,8 @@ class DouglasSystemExit(SystemExit):
 
 
 TLS_ERROR_PATTERN = re.compile(
-    r"\btls\b[^\n]*(error|failed|failure|handshake|protocol)"
+    r"\btls\b[^\n]*(error|failed|failure|handshake|protocol)",
+    re.IGNORECASE
 )
 
 
