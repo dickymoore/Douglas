@@ -91,7 +91,7 @@ class OpenAIProvider(LLMProvider):
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                 )
-                text = self._extract_responses_text(response)
+                text = response.choices[0].message.content
             else:
                 response = self._client.ChatCompletion.create(
                     model=self.model,
