@@ -32,7 +32,27 @@ class SecurityReport:
         return [result.name for result in self.results]
 
 class SecurityConfigurationError(ValueError): ...
-class SecurityCheckError(RuntimeError): ...
+
+
+class SecurityCheckError(RuntimeError):
+    """Error raised when a security tool fails to execute successfully."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        tool: str,
+        command: Iterable[str],
+        exit_code: Optional[int] = None,
+        stdout: Optional[str] = None,
+        stderr: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.tool: str = tool
+        self.command: list[str] = list(command)
+        self.exit_code: Optional[int] = exit_code
+        self.stdout: Optional[str] = stdout
+        self.stderr: Optional[str] = stderr
 
 @dataclass(slots=True)
 class _SecurityToolSpec:
@@ -133,15 +153,23 @@ def _spec_from_mapping(
         args = None
     elif isinstance(args_value, (str, bytes, bytearray)):
         args = [args_value]
+    elif isinstance(args_value, Iterable) and not isinstance(
+        args_value, (str, bytes, bytearray)
+    ):
+        args = args_value
     else:
-        args = args_value  # type: ignore[assignment]
+        raise SecurityConfigurationError(
+            "Security tool 'args' must be an iterable of argument-like objects."
+        )
 
     paths: Optional[Iterable[object]]
     if paths_value is None:
         paths = None
     elif isinstance(paths_value, (str, bytes, bytearray)):
         paths = [paths_value]
-    elif isinstance(paths_value, Iterable):
+    elif isinstance(paths_value, Iterable) and not isinstance(
+        paths_value, (str, bytes, bytearray)
+    ):
         paths = paths_value
     else:
         raise SecurityConfigurationError(
