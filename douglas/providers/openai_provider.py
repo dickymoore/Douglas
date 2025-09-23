@@ -1,4 +1,5 @@
 import os
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Optional
 
 from douglas.providers.llm_provider import LLMProvider
@@ -15,6 +16,7 @@ class OpenAIProvider(LLMProvider):
     """
 
     DEFAULT_MODEL = "gpt-4o-mini"
+    _MAX_NORMALIZATION_DEPTH = 32
 
     def __init__(
         self,
@@ -157,79 +159,163 @@ class OpenAIProvider(LLMProvider):
 
         return self._extract_chat_completion_text(response)
 
-    def _extract_responses_text(self, response: Any) -> str:
-        text = getattr(response, "output_text", None)
-        if isinstance(text, str) and text.strip():
-            return text.strip()
+    def _normalize_response_content(
+        self,
+        content: Any,
+        *,
+        depth: int = 0,
+        seen: Optional[set[int]] = None,
+    ) -> str:
+        """Normalise nested response content into a string with cycle protection."""
 
-        if isinstance(response, dict):
-            dict_text = response.get("output_text")
-            if isinstance(dict_text, str) and dict_text.strip():
-                return dict_text.strip()
+        if content is None:
+            return ""
 
-        def _extract_block_text(block: Any) -> Optional[str]:
-            if isinstance(block, dict):
-                text_payload = block.get("text")
-                if isinstance(text_payload, dict):
-                    value = text_payload.get("value") or text_payload.get("content")
-                    if value:
-                        return str(value)
-                if isinstance(text_payload, str):
-                    return text_payload
-                value = block.get("value") or block.get("content")
-                if isinstance(value, str):
-                    return value
-            else:
-                text_attr = getattr(block, "text", None)
-                if isinstance(text_attr, str):
-                    return text_attr
-                value = getattr(text_attr, "value", None)
-                if value:
-                    return str(value)
-                value = getattr(block, "value", None)
-                if isinstance(value, str):
-                    return value
-            if isinstance(block, str):
-                return block
-            return None
+        if depth > self._MAX_NORMALIZATION_DEPTH:
+            return ""
 
-        def _normalise_content(content: Any) -> Optional[str]:
-            if isinstance(content, str):
-                return content.strip()
-            if isinstance(content, list):
-                pieces: list[str] = []
-                for block in content:
-                    text_value = _extract_block_text(block)
-                    if text_value:
-                        pieces.append(text_value.strip())
-                if pieces:
-                    return "\n".join(pieces).strip()
-            text_value = _extract_block_text(content)
-            if text_value:
-                return text_value.strip()
-            return None
+        if seen is None:
+            seen = set()
 
-        output_segments = getattr(response, "output", None)
-        if output_segments is None and isinstance(response, dict):
-            output_segments = response.get("output")
-        if output_segments:
-            segments = (
-                output_segments
-                if isinstance(output_segments, list)
-                else [output_segments]
-            )
+        if isinstance(content, str):
+            stripped = content.strip()
+            return stripped if stripped else ""
+
+        if isinstance(content, (bytes, bytearray)):
+            stripped = bytes(content).decode("utf-8", "ignore").strip()
+            return stripped if stripped else ""
+
+        if isinstance(content, Sequence) and not isinstance(
+            content, (str, bytes, bytearray)
+        ):
             pieces: list[str] = []
-            for segment in segments:
-                content = (
-                    segment.get("content")
-                    if isinstance(segment, dict)
-                    else getattr(segment, "content", None)
-                )
-                normalized = _normalise_content(content)
-                if normalized:
-                    pieces.append(normalized)
+            for item in content:
+                piece = self._coerce_text_value(item, depth=depth + 1, seen=seen)
+                if piece:
+                    pieces.append(piece)
             if pieces:
                 return "\n".join(pieces).strip()
+            return ""
+
+        return self._coerce_text_value(content, depth=depth + 1, seen=seen)
+
+    def _coerce_text_value(
+        self,
+        value: Any,
+        *,
+        depth: int = 0,
+        seen: Optional[set[int]] = None,
+    ) -> str:
+        """Attempt to coerce nested response text blocks into a string."""
+
+        if value is None:
+            return ""
+
+        if depth > self._MAX_NORMALIZATION_DEPTH:
+            return ""
+
+        if seen is None:
+            seen = set()
+
+        obj_id = id(value)
+        if obj_id in seen:
+            return ""
+
+        seen.add(obj_id)
+        try:
+            if isinstance(value, str):
+                stripped = value.strip()
+                return stripped if stripped else ""
+
+            if isinstance(value, (bytes, bytearray)):
+                stripped = bytes(value).decode("utf-8", "ignore").strip()
+                return stripped if stripped else ""
+
+            if isinstance(value, Sequence) and not isinstance(
+                value, (str, bytes, bytearray)
+            ):
+                return self._normalize_response_content(
+                    list(value), depth=depth + 1, seen=seen
+                )
+
+            if isinstance(value, Mapping):
+                prioritized_keys = (
+                    "output_text",
+                    "text",
+                    "value",
+                    "content",
+                    "string_value",
+                )
+                for key in prioritized_keys:
+                    if key in value:
+                        result = self._normalize_response_content(
+                            value[key], depth=depth + 1, seen=seen
+                        )
+                        if result:
+                            return result
+
+                aggregated: list[str] = []
+                for nested_value in value.values():
+                    result = self._normalize_response_content(
+                        nested_value, depth=depth + 1, seen=seen
+                    )
+                    if result:
+                        aggregated.append(result)
+                if aggregated:
+                    return "\n".join(aggregated).strip()
+                return ""
+
+            for attr in (
+                "output_text",
+                "text",
+                "value",
+                "content",
+                "string_value",
+            ):
+                if hasattr(value, attr):
+                    result = self._normalize_response_content(
+                        getattr(value, attr), depth=depth + 1, seen=seen
+                    )
+                    if result:
+                        return result
+
+            if isinstance(value, Iterable) and not isinstance(
+                value, (str, bytes, bytearray)
+            ):
+                pieces: list[str] = []
+                for item in value:
+                    result = self._normalize_response_content(
+                        item, depth=depth + 1, seen=seen
+                    )
+                    if result:
+                        pieces.append(result)
+                if pieces:
+                    return "\n".join(pieces).strip()
+
+            text = str(value).strip()
+            return text if text else ""
+        finally:
+            seen.discard(obj_id)
+
+    def _extract_responses_text(self, response: Any) -> str:
+        text = self._normalize_response_content(getattr(response, "output_text", None))
+        if text:
+            return text
+
+        attribute_output = self._normalize_response_content(
+            getattr(response, "output", None)
+        )
+        if attribute_output:
+            return attribute_output
+
+        if isinstance(response, dict):
+            dict_text = self._normalize_response_content(response.get("output_text"))
+            if dict_text:
+                return dict_text
+
+            dict_output = self._normalize_response_content(response.get("output"))
+            if dict_output:
+                return dict_output
 
         choices = getattr(response, "choices", None)
         if choices:
@@ -238,19 +324,16 @@ class OpenAIProvider(LLMProvider):
                 if isinstance(choices[0], dict)
                 else getattr(choices[0], "message", None)
             )
-            if isinstance(message, dict):
-                content = message.get("content")
-            else:
-                content = getattr(message, "content", None)
-            normalized = _normalise_content(content)
+            content = message.get("content") if isinstance(message, dict) else getattr(message, "content", None)
+            normalized = self._normalize_response_content(content)
             if normalized:
                 return normalized
 
         if isinstance(response, dict):
-            choices = response.get("choices") or []
-            if choices:
-                message = choices[0].get("message", {})
-                normalized = _normalise_content(message.get("content"))
+            dict_choices = response.get("choices") or []
+            if dict_choices:
+                message = dict_choices[0].get("message", {})
+                normalized = self._normalize_response_content(message.get("content"))
                 if normalized:
                     return normalized
 
@@ -261,12 +344,20 @@ class OpenAIProvider(LLMProvider):
             except Exception:  # pragma: no cover - defensive fallback
                 payload = None
         if isinstance(payload, dict):
-            choices = payload.get("choices") or []
-            if choices:
-                message = choices[0].get("message", {})
-                normalized = _normalise_content(message.get("content"))
+            payload_text = self._normalize_response_content(payload.get("output_text"))
+            if payload_text:
+                return payload_text
+
+            payload_choices = payload.get("choices") or []
+            if payload_choices:
+                message = payload_choices[0].get("message", {})
+                normalized = self._normalize_response_content(message.get("content"))
                 if normalized:
                     return normalized
+
+            payload_output = self._normalize_response_content(payload.get("output"))
+            if payload_output:
+                return payload_output
 
         return ""
 
