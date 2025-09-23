@@ -55,7 +55,7 @@ def _create_orchestrator(
         return Douglas(inferred_path)
     if default_config_factory is None:
         raise FileNotFoundError(
-            f"No configuration file found at '{inferred_path}' and no default configuration factory provided."
+            "No douglas.yaml configuration file found. Run `douglas init <project-name>` to create a new project or ensure you are in a valid Douglas project directory."
         )
 
     config_data = default_config_factory()
