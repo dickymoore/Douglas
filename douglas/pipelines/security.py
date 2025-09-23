@@ -270,7 +270,7 @@ def _run_tool(spec: _SecurityToolSpec) -> SecurityToolResult:
             tool=spec.name,
             command=spec.command,
             exit_code=exit_code,
-            stdout=stdout if stdout is not None else getattr(exc, "output", ""),
+            stdout=stdout or getattr(exc, "output", "") or "",
             stderr=stderr,
         ) from exc
 
