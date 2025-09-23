@@ -61,7 +61,7 @@ To execute the development loop today, instantiate `Douglas` from Python (see th
 Douglas is entirely driven by a `douglas.yaml` file located at your project root. A canonical template lives in [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl) and is used when `init_project` scaffolds a new repository. Key sections include:
 
 - `project`: metadata used in prompts (name, description, language, license).
-- `ai`: provider name, model identifier, and the path to a system prompt file used when constructing LLM prompts.[`douglas/core.py`](douglas/core.py)
+- `ai`: provider name, model identifier, and the path to a system prompt file used when constructing LLM prompts. [`douglas/core.py`](douglas/core.py)
 - `cadence`: role/activity cadence preferences consulted by the cadence manager.[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
 - `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations.[`douglas/core.py`](douglas/core.py)
 - `push_policy`: governs when push/PR steps fire (`per_feature`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
