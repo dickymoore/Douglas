@@ -60,7 +60,9 @@ def _create_orchestrator(
 
     config_data = default_config_factory()
     if config_data is None:
-        return Douglas(inferred_path)
+        raise FileNotFoundError(
+            f"No configuration file found at '{inferred_path}' and the default configuration factory returned None."
+        )
 
     return Douglas(
         config_path=inferred_path,
