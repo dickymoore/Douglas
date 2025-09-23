@@ -98,7 +98,7 @@ def test_push_step_creates_bug_on_local_check_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Douglas, '_discover_local_check_commands', lambda self: [['fake-tool']])
     monkeypatch.setattr(Douglas, '_run_git_push', unexpected_push)
-    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self, *args, **kwargs: None)
+    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self, branch, timeout=60: None)
 
     _patch_subprocess_for_command(
         monkeypatch,
