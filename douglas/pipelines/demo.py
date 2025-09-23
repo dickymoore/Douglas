@@ -16,7 +16,7 @@ _HISTORY_EVENT = "demo_pack_generated"
 class _SafeDict(dict):
     """Dictionary that returns an empty string for missing keys."""
 
-    def __missing__(self, key: str) -> str:  # pragma: no cover - defensive
+    def __missing__(self, key: str) -> str:  # Template safety - returns empty string for undefined variables
         return ""
 
 
