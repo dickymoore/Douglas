@@ -87,17 +87,9 @@ class OpenAIProvider(LLMProvider):
 
         try:
             if self._use_responses_api:
-                response = self._client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = response.choices[0].message.content
+                text = self._call_with_modern_client(prompt)
             else:
-                response = self._client.ChatCompletion.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = self._extract_chat_completion_text(response)
+                text = self._call_with_legacy_client(prompt)
         except Exception as exc:
             print(
                 f"Warning: OpenAI request failed ({exc}). Falling back to stub output."
@@ -112,7 +104,56 @@ class OpenAIProvider(LLMProvider):
 
         return text
 
+    def _call_with_modern_client(self, prompt: str) -> str:
+        if not self._client:
+            return ""
+
+        responses_api = getattr(self._client, "responses", None)
+        if responses_api is not None:
+            try:
+                response = responses_api.create(model=self.model, input=prompt)
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+            else:
+                text = self._extract_responses_text(response)
+                if text:
+                    return text
+
+        chat_interface = getattr(self._client, "chat", None)
+        if chat_interface is not None and hasattr(chat_interface, "completions"):
+            try:
+                response = chat_interface.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+            else:
+                text = self._extract_chat_completion_text(response)
+                if text:
+                    return text
+
+        return ""
+
+    def _call_with_legacy_client(self, prompt: str) -> str:
+        if not self._client:
+            return ""
+
+        try:
+            response = self._client.ChatCompletion.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception:  # pragma: no cover - defensive fallback
+            return ""
+
+        return self._extract_chat_completion_text(response)
+
     def _extract_responses_text(self, response: Any) -> str:
+        text = getattr(response, "output_text", None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+
         # Try to extract from attribute-based response (OpenAI SDK object)
         choices = getattr(response, "choices", None)
         if choices and len(choices) > 0:
@@ -145,6 +186,7 @@ class OpenAIProvider(LLMProvider):
             except Exception:  # pragma: no cover - defensive fallback
                 payload = None
         if isinstance(payload, dict):
+            collected: list[str] = []
             choices = payload.get("choices") or []
             if choices and len(choices) > 0:
                 message = choices[0].get("message", {})

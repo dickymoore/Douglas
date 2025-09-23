@@ -150,7 +150,7 @@ Each pipeline module focuses on a single concern:
 - `pipelines.test.run_tests()` launches `pytest -q` and returns non-zero status on failure.[`douglas/pipelines/test.py`](douglas/pipelines/test.py)
 - `pipelines.demo.write_demo_pack()` renders Markdown demo decks using Jinja-style templates, enumerating commits, role highlights, how-to-run instructions, limitations, and next steps.[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
 - `pipelines.retro.run_retro()` builds a JSON prompt for the LLM from sprint journals, parses action items/wins/risks, writes per-role instruction sheets, and appends backlog entries.[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
-- `pipelines.security.run_security()` is a placeholder hook intended for future Bandit/Semgrep integrations.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
+- `pipelines.security.run_security()` runs Bandit when available (skipping it gracefully if the tool is missing) and accepts custom commands so teams can compose broader security suites.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 
 ### Providers
 
@@ -236,8 +236,13 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
    - Export `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` or `OPENAI_BASE_URL`) to enable the bundled OpenAI integration.
    - For offline experimentation you can monkeypatch `Douglas.create_llm_provider` to return a simple object with a `generate_code(prompt)` method that prints the prompt and returns deterministic output (the test suite demonstrates this pattern). The built-in provider will also fall back to a local stub whenever credentials or the SDK are unavailable.
 
-5. **Run the development loop from Python**
-   - Because the CLI is not wired yet, run Douglas programmatically:
+5. **Run the development loop**
+   - Use the CLI entry point exposed by Typer:
+     ```bash
+     douglas run
+     ```
+   - Prefer `douglas check` first to confirm prerequisites, and `douglas init <name>` when bootstrapping a new repo from templates.
+   - Programmatic access remains available for automation workflows:
      ```bash
      python - <<'PY'
      from pathlib import Path
@@ -270,9 +275,9 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
 
 ## Limitations and open gaps
 
-- The CLI surface (`douglas` entry point) is not yet wired to the orchestrator; only a `hello` command is exposed in `cli.py`.
-- `OpenAIProvider` now integrates with the OpenAI SDK (with graceful fallbacks); pluggable support for additional providers remains future work.
-- The security pipeline is a stub (`run_security()` only logs a message) and the lint/typecheck modules require `subprocess` imports to function when run standalone.
-- The package entry point in `pyproject.toml` (`douglas = "douglas.cli:app"`) assumes a `douglas/cli.py` module that does not yet exist; adjust before publishing to PyPI.
+- The CLI currently exposes coarse-grained orchestration commands (`run`, `check`, `init`); advanced scenarios such as running a single step or dry-run modes remain future enhancements.
+- `OpenAIProvider` integrates with the OpenAI SDK (with graceful fallbacks), but pluggable support for additional LLM vendors is still on the roadmap.
+- The security pipeline defaults to Bandit and relies on locally installed tooling; expanding first-class integrations for Semgrep, pip-audit, and custom policies is planned.
+- Douglas has not yet been published to PyPI while packaging, release automation, and dependency matrices continue to stabilize.
 
 Despite these gaps, the core orchestration, cadence handling, journaling, retro/demo generation, and release automation logic are fully implemented and thoroughly unit tested under `tests/`.
