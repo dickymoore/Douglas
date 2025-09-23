@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+MERGE_CONFLICT< codex/comment-on-init-command-behavior
+from copy import deepcopy
+MERGE_CONFLICT=
 import importlib.resources as resources
+MERGE_CONFLICT> main
 from pathlib import Path
 from string import Template
 from typing import Callable, Optional
@@ -14,7 +18,25 @@ from douglas.core import Douglas
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
 
+_DEFAULT_INIT_CONFIG = {
+    "project": {"language": "python"},
+    "ai": {"provider": "openai"},
+    "history": {"max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH},
+}
 
+MERGE_CONFLICT< codex/comment-on-init-command-behavior
+
+def _create_orchestrator(
+    config_path: Optional[Path], *, default_config: Optional[dict] = None
+) -> Douglas:
+    """Instantiate the Douglas orchestrator using an optional config override."""
+    path = config_path if config_path is not None else Path("douglas.yaml")
+    if default_config is not None:
+        return Douglas(config_path=path, config_data=deepcopy(default_config))
+    else:
+        return Douglas(config_path=path)
+
+MERGE_CONFLICT=
 def _load_default_init_config() -> dict:
     """Load the seed configuration used when bootstrapping a new project."""
 
@@ -36,6 +58,7 @@ def _load_default_init_config() -> dict:
         PROJECT_NAME="DouglasProject"
     )
     config = yaml.safe_load(rendered) or {}
+MERGE_CONFLICT> main
 
     history_cfg = config.setdefault("history", {})
     history_cfg.setdefault("max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH)
@@ -143,8 +166,12 @@ def init(
 
     orchestrator = _create_orchestrator(
         config,
+MERGE_CONFLICT< codex/comment-on-init-command-behavior
+        default_config=_DEFAULT_INIT_CONFIG,
+MERGE_CONFLICT=
         default_config_factory=_load_default_init_config,
         allow_missing_config=True,
+MERGE_CONFLICT> main
     )
     orchestrator.init_project(project_name, non_interactive=non_interactive)
 
