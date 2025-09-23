@@ -69,7 +69,7 @@ Douglas is entirely driven by a `douglas.yaml` file located at your project root
 - `demo` & `retro`: configure sprint demo/retro pipelines (output formats, which sections to generate, backlog destinations).[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
 - `history`: limits for preserved CI log excerpts and other retention knobs.[`douglas/core.py`](douglas/core.py)
 - `paths`: customize locations for source, tests, AI inboxes, sprint folders, run-state files, and question portals.[`douglas/core.py`](douglas/core.py)
-- `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features.[`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
+- `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features. [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
 
 ### Douglas orchestrator
 
