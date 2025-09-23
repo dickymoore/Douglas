@@ -23,7 +23,7 @@ def _load_default_init_config() -> dict:
         template_path = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
         template_text = template_path.read_text(encoding="utf-8")
     except (FileNotFoundError, OSError):
-        # Fallback to a minimal configuration when templates are unavailable.
+        # Fallback to a minimal configuration when the template file is missing or cannot be read due to I/O errors.
         return {
             "project": {"language": "python"},
             "ai": {"provider": "openai", "model": "gpt-4"},
