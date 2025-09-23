@@ -39,10 +39,6 @@ def _create_orchestrator(
             f"Configuration file '{inferred_path}' does not exist and no default configuration was provided."
         )
 
-    return Douglas(
-        config_path=inferred_path,
-        config_data=deepcopy(default_config),
-    )
 
 
 @app.command()
