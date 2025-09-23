@@ -18,17 +18,13 @@ class OpenAIProvider(LLMProvider):
 
     def __init__(self, model_name: Optional[str] = None):
         self._api_key = os.getenv("OPENAI_API_KEY")
-        self._base_url = os.getenv("OPENAI_BASE_URL") or os.getenv(
-            "OPENAI_API_BASE"
-        )
+        self._base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
         self.model = model_name or os.getenv("OPENAI_MODEL") or self.DEFAULT_MODEL
         self._client: Optional[Any] = None
         self._use_responses_api = False
 
         if not self._api_key:
-            print(
-                "Warning: OPENAI_API_KEY not set. Falling back to local stub output."
-            )
+            print("Warning: OPENAI_API_KEY not set. Falling back to local stub output.")
             return
 
         if self._initialize_modern_client():
@@ -103,7 +99,9 @@ class OpenAIProvider(LLMProvider):
                 )
                 text = self._extract_chat_completion_text(response)
         except Exception as exc:
-            print(f"Warning: OpenAI request failed ({exc}). Falling back to stub output.")
+            print(
+                f"Warning: OpenAI request failed ({exc}). Falling back to stub output."
+            )
             return self._fallback(prompt)
 
         if not text:
@@ -161,7 +159,11 @@ class OpenAIProvider(LLMProvider):
             except Exception:  # pragma: no cover - defensive fallback
                 choices = None
             if choices:
-                message = choices[0].get("message") if isinstance(choices[0], dict) else getattr(choices[0], "message", None)
+                message = (
+                    choices[0].get("message")
+                    if isinstance(choices[0], dict)
+                    else getattr(choices[0], "message", None)
+                )
                 if isinstance(message, dict):
                     content = message.get("content")
                 else:
