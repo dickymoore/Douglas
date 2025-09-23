@@ -21,7 +21,6 @@ from douglas.journal import agent_io
 from douglas.journal import questions as question_journal
 from douglas.pipelines import demo as demopipe
 from douglas.pipelines import lint
-from douglas.pipelines import security as securitypipe
 from douglas.pipelines import retro as retropipe
 from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
@@ -53,22 +52,18 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
-<<<<<<< codex/comment-on-init-command-behavior-653dnq
-    def __init__(self, config_path="douglas.yaml", config_data: Optional[Dict[str, Any]] = None):
-        if config_path is None:
-            config_path = "douglas.yaml"
-        self.config_path = Path(config_path)
-        if config_data is None:
-            self.config = self.load_config(self.config_path)
-        else:
-            self.config = deepcopy(config_data)
-=======
     def __init__(
         self,
         config_path: Union[str, Path, None] = "douglas.yaml",
         *,
         config: Optional[Dict[str, Any]] = None,
+        config_data: Optional[Dict[str, Any]] = None,
     ):
+        if config is not None and config_data is not None:
+            raise ValueError(
+                "Only one of 'config' or 'config_data' may be provided when instantiating Douglas."
+            )
+
         if config_path is None:
             resolved_path = Path("douglas.yaml")
         else:
@@ -76,12 +71,18 @@ class Douglas:
 
         self.config_path = resolved_path
 
-        if config is None:
+        source_config: Optional[Dict[str, Any]]
+        if config is not None:
+            source_config = config
+        elif config_data is not None:
+            source_config = config_data
+        else:
+            source_config = None
+
+        if source_config is None:
             self.config = self.load_config(self.config_path)
         else:
-            self.config = config
-
->>>>>>> main
+            self.config = deepcopy(source_config)
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get("project", {}).get("name", "")
         self.lm_provider = self.create_llm_provider()
@@ -730,27 +731,6 @@ class Douglas:
                 "Developer",
                 "typecheck",
                 "Static type checks completed successfully.",
-                {"status": "passed"},
-            )
-            return StepExecutionResult(True, True, override_event, already_recorded)
-
-        if step_name == "security":
-            print("Running security step...")
-            try:
-                securitypipe.run_security()
-            except SystemExit as exc:
-                exit_code = exc.code if exc.code is not None else 1
-                self._record_agent_summary(
-                    "DevOps",
-                    "security",
-                    f"Security checks failed with exit code {exit_code}.",
-                    {"status": "failed", "exit_code": exit_code},
-                )
-                raise
-            self._record_agent_summary(
-                "DevOps",
-                "security",
-                "Security guardrails executed successfully.",
                 {"status": "passed"},
             )
             return StepExecutionResult(True, True, override_event, already_recorded)

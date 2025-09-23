@@ -209,6 +209,28 @@ class OpenAIProvider(LLMProvider):
                 return text_value.strip()
             return None
 
+        output_segments = getattr(response, "output", None)
+        if output_segments is None and isinstance(response, dict):
+            output_segments = response.get("output")
+        if output_segments:
+            segments = (
+                output_segments
+                if isinstance(output_segments, list)
+                else [output_segments]
+            )
+            pieces: list[str] = []
+            for segment in segments:
+                content = (
+                    segment.get("content")
+                    if isinstance(segment, dict)
+                    else getattr(segment, "content", None)
+                )
+                normalized = _normalise_content(content)
+                if normalized:
+                    pieces.append(normalized)
+            if pieces:
+                return "\n".join(pieces).strip()
+
         choices = getattr(response, "choices", None)
         if choices:
             message = (
