@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 import importlib.resources as resources
+from copy import deepcopy
 from pathlib import Path
 from string import Template
 from typing import Callable, Optional
@@ -13,7 +13,6 @@ import yaml
 
 from douglas.core import Douglas
 from douglas.providers.openai_provider import OpenAIProvider
-
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
 
