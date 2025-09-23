@@ -749,7 +749,9 @@ class Douglas:
 
         if step_name == "security":
             print("Running security step...")
-            tools_config = step_config.get("tools") if isinstance(step_config, dict) else None
+            tools_config = (
+                step_config.get("tools") if isinstance(step_config, dict) else None
+            )
             default_paths = None
             if isinstance(step_config, dict):
                 default_paths = (
