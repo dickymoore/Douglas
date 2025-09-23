@@ -40,7 +40,7 @@ def test_per_sprint_retrospective_waits_for_final_day():
         {'name': 'retrospective', 'role': 'ScrumMaster', 'activity': 'retrospective'},
     )
     assert early.should_run is False
-    assert 'defers execution' in early.reason
+    assert 'not scheduled until the end of the sprint' in early.reason.lower()
 
     sprint.current_day = sprint.sprint_length_days
     final = cadence.evaluate_step(
@@ -65,6 +65,7 @@ def test_per_feature_review_runs_when_feature_available():
         'review', {'name': 'review', 'role': 'Developer', 'activity': 'code_review'}
     )
     assert first.should_run is False
+    assert 'waiting for completed features' in first.reason
 
     sprint.record_commit('feat: initial capability')
     pending = cadence.evaluate_step(
@@ -80,15 +81,15 @@ def test_per_feature_review_runs_when_feature_available():
 
 
 def test_on_demand_cadence_skips_until_triggered():
-    config = {'Stakeholder': {'check_in': 'on_demand'}}
+    config = {'Stakeholder': {'status_update': 'on_demand'}}
     sprint, cadence = _build_manager(config)
 
     decision = cadence.evaluate_step(
         'status_update',
-        {'name': 'status_update', 'role': 'Stakeholder', 'activity': 'check_in'},
+        {'name': 'status_update', 'role': 'Stakeholder', 'activity': 'status_update'},
     )
     assert decision.should_run is False
-    assert 'on-demand' in decision.reason.lower()
+    assert 'manual trigger' in decision.reason.lower()
 
 
 def test_should_run_step_helper_exposes_context():
@@ -106,6 +107,7 @@ def test_should_run_step_helper_exposes_context():
 
     assert should_run_step(context.role, context.activity, context) is True
     assert context.decision is not None
+    assert 'developer cadence for development' in context.decision.reason.lower()
 
 
 def test_step_level_cadence_overrides_role_defaults():
@@ -122,3 +124,21 @@ def test_step_level_cadence_overrides_role_defaults():
     sprint.record_step_execution('demo', final_day.event_type)
     repeat = cadence.evaluate_step('demo', {'name': 'demo', 'cadence': 'per_sprint'})
     assert repeat.should_run is False
+
+
+def test_per_epic_activity_waits_for_epic_completion():
+    config = {'ProductOwner': {'backlog_refinement': 'per_epic'}}
+    sprint, cadence = _build_manager(config, sprint_length=4)
+
+    initial = cadence.evaluate_step('refine', {'name': 'refine'})
+    assert initial.should_run is False
+    assert 'epic' in initial.reason.lower()
+
+    sprint.mark_epic_completed('EPIC-42')
+    ready = cadence.evaluate_step('refine', {'name': 'refine'})
+    assert ready.should_run is True
+    assert ready.event_type == 'epic'
+
+    sprint.record_step_execution('refine', ready.event_type)
+    follow_up = cadence.evaluate_step('refine', {'name': 'refine'})
+    assert follow_up.should_run is False

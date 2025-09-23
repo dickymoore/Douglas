@@ -20,6 +20,7 @@ class CadenceContext:
     activity: str
     cadence_value: Optional[object]
     cadence_source: str
+    frequency: Optional[str]
     sprint_manager: "SprintManager"
     sprint_day: int
     sprint_length: int
@@ -38,16 +39,52 @@ def should_run_step(role: str, activity: str, context: CadenceContext) -> bool:
 
     # When cadence is configured at the role level, surface the role/activity in logs.
     if context.cadence_source == "role":
+        frequency = (context.frequency or "").lower()
         prefix = f"{role} cadence for {activity}"
-        message = decision.reason or ""
+        message = (decision.reason or "").strip()
+
         if decision.should_run:
-            reason = message or "eligible for this iteration."
-            decision = CadenceDecision(True, f"{prefix}: {reason}", decision.event_type)
+            if message:
+                reason = f"{prefix}: {message}"
+            else:
+                schedule = frequency or "daily"
+                reason = f"{prefix} scheduled this iteration ({schedule})."
+            decision = CadenceDecision(True, reason, decision.event_type)
         else:
-            reason = message or "defers execution until the schedule permits."
-            decision = CadenceDecision(
-                False, f"{prefix} defers execution: {reason}", decision.event_type
-            )
+            event_wait_messages = {
+                "per_feature": "waiting for completed features to review.",
+                "per_bug": "waiting for resolved bugs to verify.",
+                "per_epic": "waiting for finished epics before continuing.",
+            }
+
+            if frequency == "per_sprint":
+                if context.sprint_length > 0:
+                    timing = f"day {context.sprint_length}"
+                else:
+                    timing = "the end of the sprint"
+                current_day = context.sprint_day or 1
+                reason = (
+                    f"{prefix} is per_sprint; not scheduled until the end of the sprint"
+                    f" ({timing}). Currently on day {current_day}."
+                )
+            elif frequency in event_wait_messages:
+                reason = f"{prefix} is {frequency}; {event_wait_messages[frequency]}"
+                pending_key = frequency.split("_", 1)[1]
+                pending_available = context.available_events.get(pending_key, 0)
+                if pending_available:
+                    plural = "s" if pending_available != 1 else ""
+                    reason = (
+                        f"{prefix}: {pending_available} pending {pending_key}{plural}"
+                        " awaiting follow-up."
+                    )
+            elif frequency in {"on_demand", "on-demand"}:
+                reason = f"{prefix} is on-demand; waiting for a manual trigger."
+            elif message:
+                reason = f"{prefix}: {message}"
+            else:
+                reason = f"{prefix} defers execution until the configured window."
+
+            decision = CadenceDecision(False, reason, decision.event_type)
 
     # Record the decision for callers and tests.
     context.decision = decision
@@ -65,6 +102,7 @@ class CadenceManager:
         "review": ("Developer", "code_review"),
         "feature_refinement": ("ProductOwner", "backlog_refinement"),
         "refine": ("ProductOwner", "backlog_refinement"),
+        "refinement": ("ProductOwner", "backlog_refinement"),
         "demo": ("ProductOwner", "sprint_review"),
         "retrospective": ("ScrumMaster", "retrospective"),
         "retro": ("ScrumMaster", "retrospective"),
@@ -75,6 +113,11 @@ class CadenceManager:
         "push": ("DevOps", "release"),
         "pr": ("Developer", "code_review"),
         "deploy": ("DevOps", "release"),
+        "design_review": ("Designer", "design_review"),
+        "ux_review": ("Designer", "design_review"),
+        "stakeholder_update": ("Stakeholder", "check_in"),
+        "status_update": ("Stakeholder", "status_update"),
+        "requirements_review": ("BA", "requirements_analysis"),
     }
 
     _DEFAULT_STEP_CADENCE: Dict[str, str] = {
@@ -193,6 +236,7 @@ class CadenceManager:
             activity=activity,
             cadence_value=cadence_value,
             cadence_source=cadence_source,
+            frequency=self._normalize_frequency(cadence_value),
             sprint_manager=self.sprint_manager,
             sprint_day=self.sprint_manager.current_day,
             sprint_length=self.sprint_manager.sprint_length_days,
@@ -206,6 +250,20 @@ class CadenceManager:
         if value is None:
             return ""
         return str(value).strip().lower()
+
+    @staticmethod
+    def _normalize_frequency(value: Optional[object]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            return normalized or None
+        if isinstance(value, dict):
+            for key in ("frequency", "cadence", "type"):
+                candidate = value.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    return candidate.strip().lower()
+        return None
 
     def _default_cadence_for_step(self, step_name: str) -> Optional[str]:
         normalized = self._normalize_key(step_name)

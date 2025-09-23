@@ -97,10 +97,29 @@ ai:
   model: "gpt-4"
   prompt: "system_prompt.md"
 cadence:
+  Developer:
+    development: daily
+    quality_checks: daily
+    code_review: per_feature
+  Tester:
+    test_cases: daily
+    regression: per_sprint
   ProductOwner:
+    backlog_refinement: per_sprint
     sprint_review: per_sprint
   ScrumMaster:
+    daily_standup: daily
     retrospective: per_sprint
+  DevOps:
+    release: per_feature
+  Designer:
+    design_review: per_sprint
+    ux_review: per_feature
+  BA:
+    requirements_analysis: per_sprint
+  Stakeholder:
+    check_in: per_sprint
+    status_update: on_demand
 loop:
   steps:
     - name: generate
@@ -144,6 +163,12 @@ The optional top-level `cadence` map assigns scheduling preferences to each
 role/activity pair. Values can be simple strings (for example `per_sprint` or
 `daily`) or objects with a `frequency` field. When omitted, Douglas falls back to
 built-in defaults for common steps.
+
+During the loop Douglas asks `CadenceManager.should_run_step(role, activity, context)`
+whether a step should execute. The helper inspects sprint day counters, completed
+features/bugs/epics, and any role-level cadence to explain why a step ran or was
+skipped (for example: "ScrumMaster cadence for retrospective is per_sprint; not
+scheduled until the end of the sprint").
 
 Each `loop.steps` entry can also declare its own cadence. A step-level cadence
 overrides role defaults so you can, for example, run the demo only on the last

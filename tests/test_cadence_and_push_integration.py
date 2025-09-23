@@ -2,7 +2,7 @@ import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
+from typing import Dict, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -28,6 +28,7 @@ def _init_repo(
     *,
     push_policy: str,
     demo_cadence: Optional[str],
+    cadence_overrides: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Path:
     subprocess.run(
         ["git", "init"],
@@ -66,8 +67,16 @@ def _init_repo(
         "push_policy": push_policy,
         "sprint": {"length_days": 2},
     }
+    cadence_config: Dict[str, Dict[str, str]] = {}
+    if cadence_overrides:
+        for role, activities in cadence_overrides.items():
+            if not isinstance(activities, dict):
+                continue
+            cadence_config[role] = dict(activities)
     if demo_cadence is not None:
-        config_data["cadence"] = {"ProductOwner": {"sprint_review": demo_cadence}}
+        cadence_config.setdefault("ProductOwner", {})["sprint_review"] = demo_cadence
+    if cadence_config:
+        config_data["cadence"] = cadence_config
 
     config_path = tmp_path / "douglas.yaml"
     config_path.write_text(yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8")
@@ -97,17 +106,43 @@ def _init_repo(
     (
         "demo_override",
         "push_policy",
+        "cadence_overrides",
         "commit_messages",
         "expected_push_counts",
         "expected_demo_counts",
     ),
     [
-        (None, "per_sprint", ["feat: add report", "feat: finalize report"], [0, 1], [0, 1]),
-        ("daily", "per_sprint", ["feat: add report", "feat: finalize report"], [0, 1], [1, 2]),
-        (None, "per_feature", ["feat: add report", "feat: finalize report"], [1, 2], [0, 1]),
-        ("daily", "per_feature", ["feat: add report", "feat: finalize report"], [1, 2], [1, 2]),
-        (None, "per_bug", ["fix: resolve crash", "fix: harden edge case"], [1, 2], [0, 1]),
-        ("daily", "per_bug", ["fix: resolve crash", "fix: harden edge case"], [1, 2], [1, 2]),
+        (None, "per_sprint", None, ["feat: add report", "feat: finalize report"], [0, 1], [0, 1]),
+        ("daily", "per_sprint", None, ["feat: add report", "feat: finalize report"], [0, 1], [1, 2]),
+        (None, "per_feature", None, ["feat: add report", "feat: finalize report"], [1, 2], [0, 1]),
+        (
+            "daily",
+            "per_feature",
+            None,
+            ["feat: add report", "feat: finalize report"],
+            [1, 2],
+            [1, 2],
+        ),
+        (None, "per_bug", None, ["fix: resolve crash", "fix: harden edge case"], [1, 2], [0, 1]),
+        (
+            "daily",
+            "per_bug",
+            None,
+            ["fix: resolve crash", "fix: harden edge case"],
+            [1, 2],
+            [1, 2],
+        ),
+        (
+            "daily",
+            "per_feature",
+            {
+                "DevOps": {"release": "per_sprint"},
+                "Developer": {"code_review": "per_sprint"},
+            },
+            ["feat: add report", "feat: finalize report"],
+            [0, 1],
+            [1, 2],
+        ),
     ],
     ids=
     [
@@ -117,6 +152,7 @@ def _init_repo(
         "per_feature_daily_demo",
         "per_bug_default_demo",
         "per_bug_daily_demo",
+        "release_cadence_per_sprint",
     ],
 )
 def test_cadence_and_push_matrix(
@@ -124,11 +160,17 @@ def test_cadence_and_push_matrix(
     tmp_path,
     demo_override,
     push_policy,
+    cadence_overrides,
     commit_messages,
     expected_push_counts,
     expected_demo_counts,
 ):
-    config_path = _init_repo(tmp_path, push_policy=push_policy, demo_cadence=demo_override)
+    config_path = _init_repo(
+        tmp_path,
+        push_policy=push_policy,
+        demo_cadence=demo_override,
+        cadence_overrides=cadence_overrides,
+    )
 
     provider = SequencedProvider(commit_messages)
     monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: provider)

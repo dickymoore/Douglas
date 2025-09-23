@@ -22,6 +22,14 @@ cadence:
     retrospective: per_sprint
   DevOps:
     release: per_feature
+  Designer:
+    design_review: per_sprint
+    ux_review: per_feature
+  BA:
+    requirements_analysis: per_sprint
+  Stakeholder:
+    check_in: per_sprint
+    status_update: on_demand
 loop:
   steps:
     - name: generate
