@@ -16,7 +16,7 @@ def _create_orchestrator(config_path: Optional[Path]) -> Douglas:
     """Instantiate the Douglas orchestrator using an optional config override."""
     if config_path is None:
         return Douglas()
-    return Douglas(config_path=str(config_path))
+    return Douglas(config_path=config_path)
 
 
 @app.command()
