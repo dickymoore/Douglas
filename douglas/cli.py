@@ -14,7 +14,6 @@ app = typer.Typer(help="AI-assisted development loop orchestrator")
 
 def _config_option(help_text: str) -> Optional[Path]:
     """Shared configuration file option declaration for CLI commands."""
-
     return typer.Option(
         None,
         "--config",
@@ -41,7 +40,6 @@ def run(
     ),
 ) -> None:
     """Execute the configured Douglas development loop."""
-
     orchestrator = _create_orchestrator(config)
     orchestrator.run_loop()
 
@@ -53,7 +51,6 @@ def check(
     ),
 ) -> None:
     """Validate configuration and environment prerequisites."""
-
     orchestrator = _create_orchestrator(config)
     orchestrator.check()
 
@@ -71,14 +68,12 @@ def init(
     ),
 ) -> None:
     """Scaffold a new repository using Douglas templates."""
-
     orchestrator = _create_orchestrator(config)
     orchestrator.init_project(project_name, non_interactive=non_interactive)
 
 
 def main() -> None:
     """Entry point used by the console script."""
-
     app()
 
 
