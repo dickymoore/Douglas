@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 
@@ -51,9 +51,24 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
-    def __init__(self, config_path="douglas.yaml"):
-        self.config_path = Path(config_path)
-        self.config = self.load_config(self.config_path)
+    def __init__(
+        self,
+        config_path: Union[str, Path, None] = "douglas.yaml",
+        *,
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        if config_path is None:
+            resolved_path = Path("douglas.yaml")
+        else:
+            resolved_path = Path(config_path)
+
+        self.config_path = resolved_path
+
+        if config is None:
+            self.config = self.load_config(self.config_path)
+        else:
+            self.config = config
+
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get("project", {}).get("name", "")
         self.lm_provider = self.create_llm_provider()
