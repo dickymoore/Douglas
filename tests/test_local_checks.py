@@ -180,3 +180,20 @@ def test_run_local_checks_success_records_history(monkeypatch, tmp_path):
     assert history_path.exists()
     entries = [json.loads(line) for line in history_path.read_text(encoding='utf-8').splitlines() if line.strip()]
     assert any(entry['event'] == 'local_checks_pass' for entry in entries)
+
+
+def test_log_excerpt_limit_respects_configuration(monkeypatch, tmp_path):
+    config_path = _init_repo(tmp_path, steps=[{'name': 'push'}], exit_conditions=[])
+
+    config_data = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+    config_data.setdefault('history', {})['max_log_excerpt_length'] = 120
+    config_path.write_text(yaml.safe_dump(config_data, sort_keys=False), encoding='utf-8')
+
+    monkeypatch.setattr(Douglas, 'create_llm_provider', lambda self: StaticProvider())
+    douglas = Douglas(config_path)
+
+    sample = 'abcdefghijklmnopqrstuvwxyz' * 20  # 520 characters
+    excerpt = douglas._tail_log_excerpt(sample, limit=400)
+
+    assert len(excerpt) == 120
+    assert excerpt == sample[-120:]

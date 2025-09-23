@@ -43,7 +43,9 @@ class Douglas:
         'per_sprint',
     }
   
-    MAX_LOG_EXCERPT_LENGTH = 4000  # Maximum number of characters kept from the end of CI logs and bug report excerpts.
+    MAX_LOG_EXCERPT_LENGTH = (
+        4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
+    )
     
     def __init__(self, config_path='douglas.yaml'):
         self.config_path = Path(config_path)
@@ -54,6 +56,7 @@ class Douglas:
         self.sprint_manager = SprintManager(sprint_length_days=self._resolve_sprint_length())
         self.cadence_manager = CadenceManager(self.config.get('cadence'), self.sprint_manager)
         self.push_policy = self._resolve_push_policy()
+        self._max_log_excerpt_length = self._resolve_log_excerpt_length()
         self.history_path = self.project_root / 'ai-inbox' / 'history.jsonl'
         self._loop_outcomes: Dict[str, Optional[bool]] = {}
         self._ci_status: Optional[str] = None
@@ -110,6 +113,31 @@ class Douglas:
             print(f"Warning: Unsupported push_policy '{candidate}'; defaulting to per_feature.")
             return 'per_feature'
         return normalized
+
+    def _resolve_log_excerpt_length(self) -> int:
+        history_cfg = self.config.get('history', {}) or {}
+        candidate = history_cfg.get('max_log_excerpt_length')
+
+        if candidate is None:
+            return self.MAX_LOG_EXCERPT_LENGTH
+
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            print(
+                "Warning: Invalid history.max_log_excerpt_length value "
+                f"'{candidate}'; defaulting to {self.MAX_LOG_EXCERPT_LENGTH}."
+            )
+            return self.MAX_LOG_EXCERPT_LENGTH
+
+        if value <= 0:
+            print(
+                "Warning: history.max_log_excerpt_length must be positive; "
+                f"defaulting to {self.MAX_LOG_EXCERPT_LENGTH}."
+            )
+            return self.MAX_LOG_EXCERPT_LENGTH
+
+        return value
 
     def _resolve_iteration_limit(self) -> int:
         loop_config = self.config.get('loop', {}) or {}
@@ -1085,7 +1113,7 @@ class Douglas:
         snippet = logs.strip()
         if not snippet:
             return None
-        max_len = min(limit, self.MAX_LOG_EXCERPT_LENGTH)
+        max_len = min(limit, self._max_log_excerpt_length)
         if len(snippet) <= max_len:
             return snippet
         return snippet[-max_len:]
@@ -1403,7 +1431,7 @@ class Douglas:
             if log_path and log_path.exists():
                 try:
                     content = log_path.read_text(encoding='utf-8')
-                    excerpt = content[-self.MAX_LOG_EXCERPT_LENGTH:]
+                    excerpt = content[-self._max_log_excerpt_length:]
                 except OSError as exc:
                     excerpt = f'Unable to read CI log file: {exc}'
                 try:
@@ -1544,8 +1572,8 @@ class Douglas:
 
         if log_excerpt:
             snippet = log_excerpt.strip()
-            if len(snippet) > self.MAX_LOG_EXCERPT_LENGTH:
-                snippet = snippet[-self.MAX_LOG_EXCERPT_LENGTH:]
+            if len(snippet) > self._max_log_excerpt_length:
+                snippet = snippet[-self._max_log_excerpt_length:]
             entry_lines.append('### Log Excerpt\n')
             entry_lines.append('```\n' + snippet + '\n```\n')
 
@@ -2482,6 +2510,7 @@ class Douglas:
             },
             'push_policy': 'per_feature',
             'sprint': {'length_days': 10},
+            'history': {'max_log_excerpt_length': self._max_log_excerpt_length},
             'vcs': {'default_branch': 'main'},
         }
 

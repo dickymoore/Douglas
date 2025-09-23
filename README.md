@@ -148,6 +148,9 @@ ci:
   github_actions: true
   cache:
     pip: true
+history:
+  # Tail length (characters) preserved from CI logs and bug tickets. Increase to keep more context at the cost of larger files.
+  max_log_excerpt_length: 4000
 paths:
   app_src: "src"
   tests: "tests"
@@ -203,6 +206,15 @@ push or PR step was skipped so you know the decision was intentional.
 The sprint manager also records the cadence decisions in its history so exit
 conditions like `sprint_demo_complete` or `push_complete` can end the loop as
 soon as the relevant milestones are satisfied.
+
+### History logging
+
+Douglas appends JSONL events to `ai-inbox/history.jsonl` every time it records a
+commit, CI result, bug ticket, or feature iteration. Configure
+`history.max_log_excerpt_length` to control how much of each CI log or failure
+excerpt is preserved in those records and bug reports. Raising the limit keeps
+more diagnostic context but also increases the size of history files committed
+to disk.
 
 ## Architecture Overview
 

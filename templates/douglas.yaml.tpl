@@ -82,6 +82,9 @@ retro:
     - role_instructions
     - pre_feature_backlog
   backlog_file: "ai-inbox/backlog/pre-features.yaml"
+history:
+  # Tail length (characters) preserved from CI logs and bug tickets. Increase to keep more context at the cost of larger files.
+  max_log_excerpt_length: 4000
 paths:
   inbox_dir: "ai-inbox"
   app_src: "src"

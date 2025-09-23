@@ -39,6 +39,7 @@ def test_init_project_creates_scaffold(monkeypatch, tmp_path):
     assert scaffold_config['push_policy'] == 'per_feature'
     assert scaffold_config['loop']['exit_conditions'] == ['ci_pass']
     assert scaffold_config['sprint']['length_days'] == 10
+    assert scaffold_config['history']['max_log_excerpt_length'] == 4000
 
     cadence_config = scaffold_config.get('cadence', {})
     assert cadence_config['ProductOwner']['sprint_review'] == 'per_sprint'
@@ -99,3 +100,4 @@ def test_init_project_respects_language_override(monkeypatch, tmp_path):
     assert scaffold_config['project']['language'] == 'go'
     assert scaffold_config['push_policy'] == 'per_feature'
     assert scaffold_config['sprint']['length_days'] == 10
+    assert scaffold_config['history']['max_log_excerpt_length'] == 4000
