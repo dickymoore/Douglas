@@ -52,13 +52,12 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
-MERGE_CONFLICT< codex/comment-on-init-command-behavior
-    def __init__(self, config_path="douglas.yaml", config_data: Optional[dict[str, Any]] = None):
+    def __init__(self, config_path="douglas.yaml", default_config: Optional[dict[str, Any]] = None):
         self.config_path = Path(config_path)
-        if config_data is None:
+        if default_config is None:
             self.config = self.load_config(self.config_path)
         else:
-            self.config = deepcopy(config_data)
+            self.config = deepcopy(default_config)
 MERGE_CONFLICT=
     def __init__(
         self,
