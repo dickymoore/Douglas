@@ -20,6 +20,7 @@ from douglas.journal import agent_io
 from douglas.journal import questions as question_journal
 from douglas.pipelines import demo as demopipe
 from douglas.pipelines import lint
+from douglas.pipelines import security as securitypipe
 from douglas.pipelines import retro as retropipe
 from douglas.pipelines import test as testpipe
 from douglas.pipelines import typecheck
@@ -86,11 +87,19 @@ class Douglas:
             sys.exit(1)
 
     def create_llm_provider(self):
-        provider_name = self.config.get("ai", {}).get("provider", "openai")
-        if provider_name == "openai":
-            return LLMProvider.create_provider("openai")
-        else:
-            print(f"LLM provider '{provider_name}' not supported.")
+        ai_config = self.config.get("ai", {}) or {}
+        provider_name = ai_config.get("provider", "openai")
+        if provider_name is None:
+            provider_name = "openai"
+
+        normalized_name = str(provider_name).strip().lower()
+        provider_options = dict(ai_config)
+        provider_options.pop("provider", None)
+
+        try:
+            return LLMProvider.create_provider(normalized_name, **provider_options)
+        except ValueError as exc:
+            print(f"LLM provider '{provider_name}' not supported: {exc}")
             sys.exit(1)
 
     def _resolve_sprint_length(self) -> Optional[int]:
@@ -685,6 +694,27 @@ class Douglas:
                 "Developer",
                 "typecheck",
                 "Static type checks completed successfully.",
+                {"status": "passed"},
+            )
+            return StepExecutionResult(True, True, override_event, already_recorded)
+
+        if step_name == "security":
+            print("Running security step...")
+            try:
+                securitypipe.run_security()
+            except SystemExit as exc:
+                exit_code = exc.code if exc.code is not None else 1
+                self._record_agent_summary(
+                    "DevOps",
+                    "security",
+                    f"Security checks failed with exit code {exit_code}.",
+                    {"status": "failed", "exit_code": exit_code},
+                )
+                raise
+            self._record_agent_summary(
+                "DevOps",
+                "security",
+                "Security guardrails executed successfully.",
                 {"status": "passed"},
             )
             return StepExecutionResult(True, True, override_event, already_recorded)
@@ -2626,12 +2656,14 @@ class Douglas:
             "cadence": {
                 "ProductOwner": {"sprint_review": "per_sprint"},
                 "ScrumMaster": {"retrospective": "per_sprint"},
+                "DevOps": {"security_checks": "per_feature"},
             },
             "loop": {
                 "steps": [
                     {"name": "generate"},
                     {"name": "lint"},
                     {"name": "typecheck"},
+                    {"name": "security"},
                     {"name": "test"},
                     {"name": "retro", "cadence": "per_sprint"},
                     {"name": "demo", "cadence": "per_sprint"},

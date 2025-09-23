@@ -20,8 +20,9 @@ cadence:
   ScrumMaster:
     daily_standup: daily
     retrospective: per_sprint
-  DevOps:
-    release: per_feature
+   DevOps:
+     release: per_feature
+      security_checks: per_feature
   Designer:
     design_review: per_sprint
     ux_review: per_feature
@@ -38,10 +39,13 @@ loop:
     - name: lint
       role: Developer
       activity: quality_checks
-    - name: typecheck
-      role: Developer
-      activity: quality_checks
-    - name: test
+     - name: typecheck
+       role: Developer
+       activity: quality_checks
+      - name: security
+        role: DevOps
+        activity: security_checks
+     - name: test
       role: Tester
       activity: test_cases
     - name: review

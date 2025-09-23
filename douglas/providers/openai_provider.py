@@ -16,10 +16,18 @@ class OpenAIProvider(LLMProvider):
 
     DEFAULT_MODEL = "gpt-4o-mini"
 
-    def __init__(self, model_name: Optional[str] = None):
-        self._api_key = os.getenv("OPENAI_API_KEY")
-        self._base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
-        self.model = model_name or os.getenv("OPENAI_MODEL") or self.DEFAULT_MODEL
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+    ):
+        resolved_model = model_name or os.getenv("OPENAI_MODEL") or self.DEFAULT_MODEL
+        self.model = str(resolved_model)
+        self._api_key = api_key or os.getenv("OPENAI_API_KEY")
+        self._base_url = (
+            base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE")
+        )
         self._client: Optional[Any] = None
         self._use_responses_api = False
 
@@ -91,7 +99,7 @@ class OpenAIProvider(LLMProvider):
                     model=self.model,
                     messages=[{"role": "user", "content": prompt}],
                 )
-                text = response.choices[0].message.content
+                text = self._extract_responses_text(response)
             else:
                 response = self._client.ChatCompletion.create(
                     model=self.model,
@@ -113,6 +121,46 @@ class OpenAIProvider(LLMProvider):
         return text
 
     def _extract_responses_text(self, response: Any) -> str:
+        collected: list[str] = []
+
+        def _extract_block_text(block: Any) -> Optional[str]:
+            if isinstance(block, dict):
+                text_payload = block.get("text")
+                if isinstance(text_payload, dict):
+                    value = text_payload.get("value") or text_payload.get("content")
+                    if value:
+                        return str(value)
+                elif isinstance(text_payload, str):
+                    return text_payload
+                value = block.get("value") or block.get("content")
+                if isinstance(value, str):
+                    return value
+            else:
+                text_attr = getattr(block, "text", None)
+                if isinstance(text_attr, str):
+                    return text_attr
+                value = getattr(text_attr, "value", None)
+                if value:
+                    return str(value)
+                value = getattr(block, "value", None)
+                if isinstance(value, str):
+                    return value
+            if isinstance(block, str):
+                return block
+            return None
+
+        def _normalise_content(content: Any) -> Optional[str]:
+            if isinstance(content, str):
+                return content.strip()
+            if isinstance(content, list):
+                for block in content:
+                    text_value = _extract_block_text(block)
+                    if text_value:
+                        collected.append(text_value.strip())
+                if collected:
+                    return "\n".join(collected).strip()
+            return None
+
         # Try to extract from attribute-based response (OpenAI SDK object)
         choices = getattr(response, "choices", None)
         if choices and len(choices) > 0:
@@ -125,17 +173,18 @@ class OpenAIProvider(LLMProvider):
                 content = message.get("content")
             else:
                 content = getattr(message, "content", None)
-            if isinstance(content, str):
-                return content.strip()
+            normalized = _normalise_content(content)
+            if normalized:
+                return normalized
 
         # Try to extract from dict-based response
         if isinstance(response, dict):
             choices = response.get("choices") or []
             if choices and len(choices) > 0:
                 message = choices[0].get("message", {})
-                content = message.get("content")
-                if isinstance(content, str):
-                    return content.strip()
+                normalized = _normalise_content(message.get("content"))
+                if normalized:
+                    return normalized
 
         # Defensive fallback: try to extract from model_dump if available
         payload = None
@@ -148,24 +197,11 @@ class OpenAIProvider(LLMProvider):
             choices = payload.get("choices") or []
             if choices and len(choices) > 0:
                 message = choices[0].get("message", {})
-                content = message.get("content")
-                if isinstance(content, str):
-                    return content.strip()
-                if isinstance(content, list):
-                    for block in content:
-                        text_value = (
-                            block.get("text", {}).get("value")
-                            if isinstance(block, dict)
-                            else getattr(block, "text", None)
-                        )
-                        if text_value:
-                            collected.append(str(text_value))
-                elif isinstance(content, str):
-                    collected.append(content)
-            if collected:
-                return "\n".join(collected).strip()
+                normalized = _normalise_content(message.get("content"))
+                if normalized:
+                    return normalized
 
-        return ""
+        return "\n".join(collected).strip() if collected else ""
 
     def _extract_chat_completion_text(self, response: Any) -> str:
         if hasattr(response, "choices"):
