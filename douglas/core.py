@@ -463,7 +463,7 @@ class Douglas:
         step_name: str,
         message: str,
         logs: Optional[str],
-    ) -> None:
+    ) -> str:
         summary = f"{step_name} step failed"
         details: list[str] = []
         if message:

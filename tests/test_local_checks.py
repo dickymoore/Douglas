@@ -2,7 +2,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional, Sequence
 
 import yaml
 
@@ -54,6 +54,36 @@ def _init_repo(tmp_path: Path, *, steps: List[dict], exit_conditions: Optional[L
     return config_path
 
 
+def _patch_subprocess_for_command(
+    monkeypatch,
+    target_command: Sequence[str],
+    *,
+    exception_factory: Optional[Callable[[], BaseException]] = None,
+    stdout: str = '',
+    stderr: str = '',
+    returncode: int = 0,
+):
+    """Patch ``subprocess.run`` to simulate behaviour for a single command."""
+
+    original_run = subprocess.run
+    expected = list(target_command)
+
+    def fake_run(command, *args, **kwargs):
+        if list(command) == expected:
+            if exception_factory is not None:
+                raise exception_factory()
+            return subprocess.CompletedProcess(
+                list(command),
+                returncode,
+                stdout=stdout,
+                stderr=stderr,
+            )
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
+    return fake_run
+
+
 def test_push_step_creates_bug_on_local_check_failure(monkeypatch, tmp_path):
     config_path = _init_repo(tmp_path, steps=[{'name': 'push'}], exit_conditions=[])
 
@@ -68,16 +98,13 @@ def test_push_step_creates_bug_on_local_check_failure(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Douglas, '_discover_local_check_commands', lambda self: [['fake-tool']])
     monkeypatch.setattr(Douglas, '_run_git_push', unexpected_push)
-    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self, branch, timeout=60: None)
+    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self, *args, **kwargs: None)
 
-    original_run = subprocess.run
-
-    def fake_run(command, *args, **kwargs):
-        if command == ['fake-tool']:
-            raise FileNotFoundError('simulated local check failure')
-        return original_run(command, *args, **kwargs)
-
-    monkeypatch.setattr(subprocess, 'run', fake_run)
+    _patch_subprocess_for_command(
+        monkeypatch,
+        ['fake-tool'],
+        exception_factory=lambda: FileNotFoundError('simulated local check failure'),
+    )
 
     douglas.run_loop()
 
@@ -130,14 +157,11 @@ def test_run_local_checks_success_records_history(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Douglas, '_discover_local_check_commands', lambda self: [['echo', 'ok']])
 
-    original_run = subprocess.run
-
-    def fake_run(command, *args, **kwargs):
-        if command == ['echo', 'ok']:
-            return subprocess.CompletedProcess(command, 0, stdout='all good\n', stderr='')
-        return original_run(command, *args, **kwargs)
-
-    monkeypatch.setattr(subprocess, 'run', fake_run)
+    _patch_subprocess_for_command(
+        monkeypatch,
+        ['echo', 'ok'],
+        stdout='all good\n',
+    )
 
     success, logs = douglas._run_local_checks()
     assert success is True
