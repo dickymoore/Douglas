@@ -107,10 +107,15 @@ def run_retro(context: Dict[str, Any]) -> RetroResult:
 
 
 def _resolve_llm_provider(context: Dict[str, Any]) -> Any:
-    provider = context.get("llm_provider")
-    if provider is not None and hasattr(provider, "generate_code"):
-        return provider
-    raise ValueError("Retro step requires a 'llm_provider' key in the context, containing an object with a 'generate_code' method.")
+    for key in ("llm_provider", "llm"):
+        provider = context.get(key)
+        if provider is None:
+            continue
+        if hasattr(provider, "generate_code"):
+            return provider
+    raise ValueError(
+        "Retro step requires a language model under the 'llm_provider' or 'llm' key with a 'generate_code' method."
+    )
 
 
 def _resolve_sprint_index(context: Dict[str, Any], sprint_manager: Any) -> int:

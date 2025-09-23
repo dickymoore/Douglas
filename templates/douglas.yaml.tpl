@@ -22,6 +22,14 @@ cadence:
     retrospective: per_sprint
   DevOps:
     release: per_feature
+  Designer:
+    design_review: per_sprint
+    ux_review: per_feature
+  BA:
+    requirements_analysis: per_sprint
+  Stakeholder:
+    check_in: per_sprint
+    status_update: on_demand
 loop:
   steps:
     - name: generate
@@ -42,9 +50,11 @@ loop:
     - name: retro
       role: ScrumMaster
       activity: retrospective
+      cadence: per_sprint
     - name: demo
       role: ProductOwner
       activity: sprint_review
+      cadence: per_sprint
     - name: commit
       role: Developer
       activity: development
@@ -54,8 +64,11 @@ loop:
     - name: pr
       role: Developer
       activity: code_review
+  exit_conditions:
+    - "ci_pass"
 sprint:
   length_days: 10
+push_policy: "per_feature"
 demo:
   format: "md"
   include:
@@ -69,6 +82,9 @@ retro:
     - role_instructions
     - pre_feature_backlog
   backlog_file: "ai-inbox/backlog/pre-features.yaml"
+history:
+  # Tail length (characters) preserved from CI logs and bug tickets. Increase to keep more context at the cost of larger files.
+  max_log_excerpt_length: 4000
 paths:
   inbox_dir: "ai-inbox"
   app_src: "src"

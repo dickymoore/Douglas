@@ -53,6 +53,7 @@ douglas --help
 
 - AI‑assisted code generation through a provider interface
 - Configurable workflow defined in `douglas.yaml` (plan, generate, lint, typecheck, test, review, commit, pr)
+- Sprint-aware cadence controls to orchestrate demos, retros, and release steps
 - Provider‑agnostic design with pluggable adapters
 - Templates and bootstrap via `douglas init`
 - Local‑first CI strategy with pre‑commit and incremental checks
@@ -95,17 +96,50 @@ ai:
   provider: "openai"
   model: "gpt-4"
   prompt: "system_prompt.md"
+cadence:
+  Developer:
+    development: daily
+    quality_checks: daily
+    code_review: per_feature
+  Tester:
+    test_cases: daily
+    regression: per_sprint
+  ProductOwner:
+    backlog_refinement: per_sprint
+    sprint_review: per_sprint
+  ScrumMaster:
+    daily_standup: daily
+    retrospective: per_sprint
+  DevOps:
+    release: per_feature
+  Designer:
+    design_review: per_sprint
+    ux_review: per_feature
+  BA:
+    requirements_analysis: per_sprint
+  Stakeholder:
+    check_in: per_sprint
+    status_update: on_demand
 loop:
   steps:
-    - generate
-    - lint
-    - typecheck
-    - test
-    - review
-    - commit
-    - pr
+    - name: generate
+    - name: lint
+    - name: typecheck
+    - name: test
+    - name: retro
+      cadence: per_sprint
+    - name: demo
+      cadence: per_sprint
+    - name: commit
+    - name: push
+    - name: pr
   exit_conditions:
-    - "tests_pass"
+    - "ci_pass"
+    - "sprint_demo_complete"
+  max_iterations: 3
+push_policy: "per_feature"
+sprint:
+  length_days: 10
 vcs:
   default_branch: "main"
   conventional_commits: true
@@ -114,10 +148,73 @@ ci:
   github_actions: true
   cache:
     pip: true
+history:
+  # Tail length (characters) preserved from CI logs and bug tickets. Increase to keep more context at the cost of larger files.
+  max_log_excerpt_length: 4000
 paths:
   app_src: "src"
   tests: "tests"
 ```
+
+Exit conditions are evaluated after each loop iteration. Configure
+`loop.max_iterations` to cap the number of passes while still exiting early when
+conditions like `tests_pass`, `ci_pass`, or `sprint_demo_complete` are satisfied.
+
+### Cadence configuration
+
+The optional top-level `cadence` map assigns scheduling preferences to each
+role/activity pair. Values can be simple strings (for example `per_sprint` or
+`daily`) or objects with a `frequency` field. When omitted, Douglas falls back to
+built-in defaults for common steps.
+
+During the loop Douglas asks `CadenceManager.should_run_step(role, activity, context)`
+whether a step should execute. The helper inspects sprint day counters, completed
+features/bugs/epics, and any role-level cadence to explain why a step ran or was
+skipped (for example: "ScrumMaster cadence for retrospective is per_sprint; not
+scheduled until the end of the sprint").
+
+Each `loop.steps` entry can also declare its own cadence. A step-level cadence
+overrides role defaults so you can, for example, run the demo only on the last
+day of the sprint:
+
+```yaml
+loop:
+  steps:
+    - name: demo
+      cadence: per_sprint
+```
+
+### Sprint settings
+
+Set `sprint.length_days` to communicate the length of a sprint to the cadence
+engine. The sprint manager tracks the current day, completed features/bugs, and
+whether per-sprint pushes or demos have already run. If the length is omitted,
+Douglas assumes a ten-day sprint.
+
+### Push/PR policy
+
+Control when Douglas pushes commits or opens pull requests with `push_policy`:
+
+- `per_feature` – push after each feature is finished (default).
+- `per_bug` – push once a bug fix is completed.
+- `per_epic` – defer until an entire epic is ready.
+- `per_sprint` – hold changes locally and push/PR on the final sprint day.
+
+When a policy defers release (for example `per_sprint`), the loop logs why the
+push or PR step was skipped so you know the decision was intentional.
+
+The sprint manager also records the cadence decisions in its history so exit
+conditions like `sprint_demo_complete` or `push_complete` can end the loop as
+soon as the relevant milestones are satisfied.
+
+### History logging
+
+Douglas appends JSONL events to `ai-inbox/history.jsonl` every time it records a
+commit, CI result, bug ticket, or feature iteration. Configure
+`history.max_log_excerpt_length` to control how much of each CI log or failure
+excerpt is preserved in those records and bug reports. Raising the limit keeps
+more diagnostic context but also increases the size of history files committed
+to disk.
 
 ## Architecture Overview
 

@@ -273,7 +273,7 @@ def _infer_commands(config: Dict[str, Any]) -> List[str]:
                 step_names.append(str(name).lower())
     commands: List[str] = []
     if "lint" in step_names:
-        commands.extend(["ruff check .", "black --check .", "isort --check ."])
+        commands.extend(["ruff check .", "black --check .", "isort --check-only ."])
     if "typecheck" in step_names:
         commands.append("mypy .")
     if "test" in step_names:

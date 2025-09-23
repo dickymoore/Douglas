@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from string import Template
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import yaml
@@ -19,6 +20,9 @@ from douglas.providers.llm_provider import LLMProvider
 from douglas.journal import agent_io, questions as question_journal
 from douglas.pipelines import demo as demopipe, lint, retro as retropipe, typecheck, test as testpipe
 from douglas.sprint_manager import CadenceDecision, SprintManager
+
+
+TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / 'templates'
 
 
 @dataclass
@@ -39,7 +43,9 @@ class Douglas:
         'per_sprint',
     }
   
-    MAX_LOG_EXCERPT_LENGTH = 4000 # Maximum number of characters kept from the end of CI logs and bug report excerpts.
+    MAX_LOG_EXCERPT_LENGTH = (
+        4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
+    )
     
     def __init__(self, config_path='douglas.yaml'):
         self.config_path = Path(config_path)
@@ -50,6 +56,7 @@ class Douglas:
         self.sprint_manager = SprintManager(sprint_length_days=self._resolve_sprint_length())
         self.cadence_manager = CadenceManager(self.config.get('cadence'), self.sprint_manager)
         self.push_policy = self._resolve_push_policy()
+        self._max_log_excerpt_length = self._resolve_log_excerpt_length()
         self.history_path = self.project_root / 'ai-inbox' / 'history.jsonl'
         self._loop_outcomes: Dict[str, Optional[bool]] = {}
         self._ci_status: Optional[str] = None
@@ -107,6 +114,55 @@ class Douglas:
             return 'per_feature'
         return normalized
 
+    def _resolve_log_excerpt_length(self) -> int:
+        history_cfg = self.config.get('history', {}) or {}
+        candidate = history_cfg.get('max_log_excerpt_length')
+
+        if candidate is None:
+            return self.MAX_LOG_EXCERPT_LENGTH
+
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            print(
+                "Warning: Invalid history.max_log_excerpt_length value "
+                f"'{candidate}'; defaulting to {self.MAX_LOG_EXCERPT_LENGTH}."
+            )
+            return self.MAX_LOG_EXCERPT_LENGTH
+
+        if value <= 0:
+            print(
+                "Warning: history.max_log_excerpt_length must be positive; "
+                f"defaulting to {self.MAX_LOG_EXCERPT_LENGTH}."
+            )
+            return self.MAX_LOG_EXCERPT_LENGTH
+
+        return value
+
+    def _resolve_iteration_limit(self) -> int:
+        loop_config = self.config.get('loop', {}) or {}
+
+        candidate = loop_config.get('max_iterations')
+        if candidate is None:
+            candidate = loop_config.get('iterations')
+
+        if candidate is None:
+            return 1
+
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            print(
+                f"Warning: Invalid loop iteration limit '{candidate}'; defaulting to 1 iteration."
+            )
+            return 1
+
+        if value <= 0:
+            print("Warning: Loop iteration limit must be positive; defaulting to 1 iteration.")
+            return 1
+
+        return value
+
     def _resolve_run_state_path(self) -> Path:
         paths_cfg = self.config.get('paths', {}) or {}
 
@@ -138,11 +194,7 @@ class Douglas:
 
         error: Optional[BaseException] = None
         try:
-            self._refresh_question_state()
-
             steps = self._normalize_step_configs(self.config.get('loop', {}).get('steps', []))
-            executed_steps: List[str] = []
-            self._executed_step_names = set()
             self._configured_steps = {str(step['name']).lower() for step in steps}
             commit_step_present = 'commit' in self._configured_steps
             self._loop_outcomes = {}
@@ -150,72 +202,90 @@ class Douglas:
             self._ci_monitoring_triggered = False
             self._ci_monitoring_deferred = False
 
-            for step_config in steps:
-                if self._exit_conditions_met(executed_steps):
+            iteration_limit = self._resolve_iteration_limit()
+            iteration_index = 0
+            last_executed_steps: List[str] = []
+
+            while iteration_index < iteration_limit:
+                if self._exit_conditions_met(last_executed_steps):
                     print("Exit condition satisfied; ending loop early.")
                     break
 
-                step_name = step_config['name']
-                decision = self.cadence_manager.evaluate_step(step_name, step_config)
-                if not decision.should_run:
-                    print(f"Skipping {step_name} step: {decision.reason}")
-                    self._record_step_outcome(step_name, executed=False, success=False)
-                    continue
+                iteration_index += 1
+                self._refresh_question_state()
 
-                role_for_step = self._resolve_step_role(step_name)
-                if self._should_defer_for_questions(role_for_step, step_name):
-                    self._record_step_outcome(step_name, executed=False, success=False)
-                    continue
+                executed_steps: List[str] = []
+                self._executed_step_names = set()
+                self._loop_outcomes = {}
+                self._ci_status = None
+                self._ci_monitoring_triggered = False
+                self._ci_monitoring_deferred = False
 
-                try:
-                    result = self._execute_step(step_name, step_config, decision)
-                except SystemExit as exc:
-                    self._record_step_outcome(step_name, executed=True, success=False)
-                    self._handle_step_failure(
-                        step_name,
-                        f"{step_name} step exited with status {exc.code}.",
-                        None,
-                    )
-                    raise
-                except Exception as exc:
-                    self._record_step_outcome(step_name, executed=True, success=False)
-                    self._handle_step_failure(
-                        step_name,
-                        f"{step_name} step raised an exception: {exc}",
-                        None,
-                    )
-                    raise
+                for step_config in steps:
+                    step_name = step_config['name']
+                    decision = self.cadence_manager.evaluate_step(step_name, step_config)
+                    if not decision.should_run:
+                        print(f"Skipping {step_name} step: {decision.reason}")
+                        self._record_step_outcome(step_name, executed=False, success=False)
+                        continue
 
-                if result.executed:
-                    event_type = (
-                        result.override_event
-                        if result.override_event is not None
-                        else decision.event_type
-                    )
-                    if not result.already_recorded:
-                        self.sprint_manager.record_step_execution(step_name, event_type)
-                    self._executed_step_names.add(step_name.lower())
-                    executed_steps.append(step_name)
-                    self._record_step_outcome(step_name, executed=True, success=result.success)
-                    if not result.success and not result.failure_reported:
+                    role_for_step = self._resolve_step_role(step_name)
+                    if self._should_defer_for_questions(role_for_step, step_name):
+                        self._record_step_outcome(step_name, executed=False, success=False)
+                        continue
+
+                    try:
+                        result = self._execute_step(step_name, step_config, decision)
+                    except SystemExit as exc:
+                        self._record_step_outcome(step_name, executed=True, success=False)
                         self._handle_step_failure(
                             step_name,
-                            result.failure_details or f"{step_name} step reported failure.",
+                            f"{step_name} step exited with status {exc.code}.",
                             None,
                         )
-                else:
-                    self._record_step_outcome(step_name, executed=False, success=False)
+                        raise
+                    except Exception as exc:
+                        self._record_step_outcome(step_name, executed=True, success=False)
+                        self._handle_step_failure(
+                            step_name,
+                            f"{step_name} step raised an exception: {exc}",
+                            None,
+                        )
+                        raise
+
+                    if result.executed:
+                        event_type = (
+                            result.override_event
+                            if result.override_event is not None
+                            else decision.event_type
+                        )
+                        if not result.already_recorded:
+                            self.sprint_manager.record_step_execution(step_name, event_type)
+                        self._executed_step_names.add(step_name.lower())
+                        executed_steps.append(step_name)
+                        self._record_step_outcome(step_name, executed=True, success=result.success)
+                        if not result.success and not result.failure_reported:
+                            self._handle_step_failure(
+                                step_name,
+                                result.failure_details or f"{step_name} step reported failure.",
+                                None,
+                            )
+                    else:
+                        self._record_step_outcome(step_name, executed=False, success=False)
+
+                if not commit_step_present:
+                    committed, _ = self._commit_if_needed()
+                    if committed:
+                        self.sprint_manager.record_step_execution('commit', None)
+
+                self.sprint_manager.finish_iteration()
+                print("Douglas loop iteration completed.")
+                last_executed_steps = executed_steps
 
                 if self._exit_conditions_met(executed_steps):
                     print("Exit condition satisfied; ending loop early.")
                     break
 
-            if not commit_step_present:
-                committed, _ = self._commit_if_needed()
-                if committed:
-                    self.sprint_manager.record_step_execution('commit', None)
-
-            self.sprint_manager.finish_iteration()
             print("Douglas loop completed.")
         except BaseException as exc:
             error = exc
@@ -463,7 +533,7 @@ class Douglas:
         step_name: str,
         message: str,
         logs: Optional[str],
-    ) -> None:
+    ) -> str:
         summary = f"{step_name} step failed"
         details: list[str] = []
         if message:
@@ -1043,7 +1113,7 @@ class Douglas:
         snippet = logs.strip()
         if not snippet:
             return None
-        max_len = min(limit, self.MAX_LOG_EXCERPT_LENGTH)
+        max_len = min(limit, self._max_log_excerpt_length)
         if len(snippet) <= max_len:
             return snippet
         return snippet[-max_len:]
@@ -1361,7 +1431,7 @@ class Douglas:
             if log_path and log_path.exists():
                 try:
                     content = log_path.read_text(encoding='utf-8')
-                    excerpt = content[-self.MAX_LOG_EXCERPT_LENGTH:]
+                    excerpt = content[-self._max_log_excerpt_length:]
                 except OSError as exc:
                     excerpt = f'Unable to read CI log file: {exc}'
                 try:
@@ -1502,8 +1572,8 @@ class Douglas:
 
         if log_excerpt:
             snippet = log_excerpt.strip()
-            if len(snippet) > self.MAX_LOG_EXCERPT_LENGTH:
-                snippet = snippet[-self.MAX_LOG_EXCERPT_LENGTH:]
+            if len(snippet) > self._max_log_excerpt_length:
+                snippet = snippet[-self._max_log_excerpt_length:]
             entry_lines.append('### Log Excerpt\n')
             entry_lines.append('```\n' + snippet + '\n```\n')
 
@@ -1526,23 +1596,28 @@ class Douglas:
         )
         return bug_id
 
-    def _write_history_event(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def write_history(self, record: Dict[str, Any]) -> None:
+        if not isinstance(record, dict):
+            raise TypeError('History records must be mappings of field names to values.')
+
+        payload: Dict[str, Any] = dict(record)
         timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-        record: Dict[str, Any] = {
-            'timestamp': timestamp,
-            'event': event_type,
-        }
-        if payload:
-            record.update(payload)
+        payload.setdefault('timestamp', timestamp)
 
         try:
             self.history_path.parent.mkdir(parents=True, exist_ok=True)
             self._ensure_history_is_git_ignored()
             with self.history_path.open('a', encoding='utf-8') as handle:
-                handle.write(json.dumps(record, sort_keys=False))
+                handle.write(json.dumps(payload, sort_keys=False))
                 handle.write('\n')
         except OSError as exc:
             print(f'Warning: Unable to write history event: {exc}')
+
+    def _write_history_event(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        record: Dict[str, Any] = {'event': event_type}
+        if payload:
+            record.update(payload)
+        self.write_history(record)
 
     def _ensure_history_is_git_ignored(self) -> None:
         git_dir = self.project_root / '.git'
@@ -2384,20 +2459,40 @@ class Douglas:
             print("Error: Required tools are missing.")
         print("Douglas doctor complete.")
 
+    def _render_init_template(self, filename: str, context: Dict[str, str]) -> str:
+        template_path = TEMPLATE_ROOT / 'init' / filename
+        try:
+            template_text = template_path.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Missing initialization template: {template_path}") from None
+
+        return Template(template_text).substitute(context)
+
     def init_project(self, project_name: str, non_interactive: bool = False):
         print(f"Initializing new project '{project_name}' with Douglas...")
         project_dir = Path(project_name)
         project_dir.mkdir(parents=True, exist_ok=True)
+        scaffold_name = project_dir.name or 'DouglasProject'
+        language = str(self.config.get('project', {}).get('language', 'python') or 'python')
+        context = {
+            'project_name': scaffold_name,
+            'language': language,
+            'language_title': language.title(),
+        }
         config_template = {
             'project': {
-                'name': project_name,
-                'description': f'Project scaffolded by Douglas for {project_name}.',
-                'language': self.config.get('project', {}).get('language', 'python'),
+                'name': scaffold_name,
+                'description': f'Project scaffolded by Douglas for {scaffold_name}.',
+                'language': language,
             },
             'ai': {
                 'provider': self.config.get('ai', {}).get('provider', 'openai'),
                 'model': self.config.get('ai', {}).get('model', 'gpt-4'),
                 'prompt': 'system_prompt.md',
+            },
+            'cadence': {
+                'ProductOwner': {'sprint_review': 'per_sprint'},
+                'ScrumMaster': {'retrospective': 'per_sprint'},
             },
             'loop': {
                 'steps': [
@@ -2405,6 +2500,8 @@ class Douglas:
                     {'name': 'lint'},
                     {'name': 'typecheck'},
                     {'name': 'test'},
+                    {'name': 'retro', 'cadence': 'per_sprint'},
+                    {'name': 'demo', 'cadence': 'per_sprint'},
                     {'name': 'commit'},
                     {'name': 'push'},
                     {'name': 'pr'},
@@ -2413,6 +2510,7 @@ class Douglas:
             },
             'push_policy': 'per_feature',
             'sprint': {'length_days': 10},
+            'history': {'max_log_excerpt_length': self._max_log_excerpt_length},
             'vcs': {'default_branch': 'main'},
         }
 
@@ -2421,114 +2519,31 @@ class Douglas:
             encoding='utf-8',
         )
 
-        readme_content = (
-            f"# {project_name}\n\n"
-            "This project was generated by Douglas with a ready-to-run Python scaffold.\n"
-            "Update the configuration in `douglas.yaml` to match your workflow and goals.\n"
-        )
+        readme_content = self._render_init_template('README.md.tpl', context)
         (project_dir / 'README.md').write_text(readme_content, encoding='utf-8')
 
-        system_prompt = (
-            "You are Douglas, an AI assistant that helps implement high-quality software. "
-            "Follow best practices, write tests, and keep responses actionable.\n"
-        )
+        system_prompt = self._render_init_template('system_prompt.md.tpl', context)
         (project_dir / 'system_prompt.md').write_text(system_prompt, encoding='utf-8')
 
-        gitignore_content = """# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-
-# Virtual environments
-.venv/
-venv/
-
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-
-# Douglas artifacts
-ai-inbox/
-douglas_review.md
-"""
+        gitignore_content = self._render_init_template('.gitignore.tpl', context)
         (project_dir / '.gitignore').write_text(gitignore_content, encoding='utf-8')
 
         src_dir = project_dir / 'src'
         src_dir.mkdir(parents=True, exist_ok=True)
         (src_dir / '__init__.py').write_text('', encoding='utf-8')
-        main_py = (
-            """
-from __future__ import annotations
-
-
-def greet(name: str = "world") -> str:
-    '''Return a friendly greeting.'''
-
-    return f"Hello, {name}!"
-
-
-def main() -> None:
-    '''Entrypoint for the scaffolded application.'''
-
-    print(greet())
-
-
-if __name__ == "__main__":
-    main()
-"""
-        ).strip()
-        (src_dir / 'main.py').write_text(main_py + '\n', encoding='utf-8')
+        main_py = self._render_init_template('src_main.py.tpl', context)
+        (src_dir / 'main.py').write_text(main_py, encoding='utf-8')
 
         tests_dir = project_dir / 'tests'
         tests_dir.mkdir(parents=True, exist_ok=True)
         (tests_dir / '__init__.py').write_text('', encoding='utf-8')
-        test_main = (
-            """
-from src import main
-
-
-def test_greet_returns_custom_message():
-    assert main.greet("Douglas") == "Hello, Douglas!"
-"""
-        ).strip()
-        (tests_dir / 'test_main.py').write_text(test_main + '\n', encoding='utf-8')
+        test_main = self._render_init_template('tests_test_main.py.tpl', context)
+        (tests_dir / 'test_main.py').write_text(test_main, encoding='utf-8')
 
         workflow_dir = project_dir / '.github' / 'workflows'
         workflow_dir.mkdir(parents=True, exist_ok=True)
-        workflow_content = (
-            """
-name: CI
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt || true
-          pip install pytest
-      - name: Lint
-        run: |
-          pip install ruff black isort
-          ruff check .
-          black --check .
-          isort --check-only .
-      - name: Tests
-        run: pytest
-"""
-        ).strip()
-        (workflow_dir / 'ci.yml').write_text(workflow_content + '\n', encoding='utf-8')
+        workflow_content = self._render_init_template('ci.yml.tpl', context)
+        (workflow_dir / 'ci.yml').write_text(workflow_content, encoding='utf-8')
 
         print(
             "Project initialized with configuration, sample source files, tests, and CI workflow."
