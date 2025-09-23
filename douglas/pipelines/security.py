@@ -196,7 +196,12 @@ def _spec_from_mapping(
             raise SecurityConfigurationError(
                 "Security tool 'command' must be a sequence of arguments."
             )
-        command = [str(token) for token in command_value]  # type: ignore[arg-type]
+        if not isinstance(command_value, Iterable):
+            raise SecurityConfigurationError(
+                "Security tool 'command' must be iterable when provided."
+            )
+        command_iterable: Iterable[object] = command_value
+        command = [str(token) for token in command_iterable]
         if not command:
             raise SecurityConfigurationError(
                 "Security tool command sequences cannot be empty."
