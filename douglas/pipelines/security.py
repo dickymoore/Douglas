@@ -37,7 +37,25 @@ class SecurityReport:
 class SecurityConfigurationError(ValueError): ...
 
 
-class SecurityCheckError(RuntimeError): ...
+class SecurityCheckError(RuntimeError):
+    """Error raised when a security tool fails to execute successfully."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        tool: str,
+        command: Iterable[str],
+        exit_code: Optional[int] = None,
+        stdout: Optional[str] = None,
+        stderr: Optional[str] = None,
+    ) -> None:
+        super().__init__(message)
+        self.tool: str = tool
+        self.command: list[str] = list(command)
+        self.exit_code: Optional[int] = exit_code
+        self.stdout: Optional[str] = stdout
+        self.stderr: Optional[str] = stderr
 
 
 @dataclass(slots=True)
