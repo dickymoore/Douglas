@@ -81,7 +81,7 @@ def _determine_orchestrator_config(
     if default_config is not None and default_config_factory is not None:
         raise ValueError(
             "Provide only one of default_config or default_config_factory when "
-            "creating an orchestrator."
+            "determining orchestrator configuration."
         )
 
     if config_path is not None:
