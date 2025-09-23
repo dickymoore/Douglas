@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Optional
 
@@ -11,12 +12,28 @@ from douglas.core import Douglas
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
 
+_DEFAULT_INIT_CONFIG = {
+    "project": {"language": "python"},
+    "ai": {"provider": "openai"},
+    "history": {"max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH},
+}
 
-def _create_orchestrator(config_path: Optional[Path]) -> Douglas:
+
+def _create_orchestrator(
+    config_path: Optional[Path], *, default_config: Optional[dict] = None
+) -> Douglas:
     """Instantiate the Douglas orchestrator using an optional config override."""
-    if config_path is None:
-        return Douglas()
-    return Douglas(config_path=config_path)
+    if config_path is not None:
+        return Douglas(config_path=config_path)
+
+    inferred_path = Path("douglas.yaml")
+    if inferred_path.exists() or default_config is None:
+        return Douglas(inferred_path)
+
+    return Douglas(
+        config_path=inferred_path,
+        config_data=deepcopy(default_config),
+    )
 
 
 @app.command()
@@ -78,7 +95,10 @@ def init(
 ) -> None:
     """Scaffold a new repository using Douglas templates."""
 
-    orchestrator = _create_orchestrator(config)
+    orchestrator = _create_orchestrator(
+        config,
+        default_config=_DEFAULT_INIT_CONFIG,
+    )
     orchestrator.init_project(project_name, non_interactive=non_interactive)
 
 
