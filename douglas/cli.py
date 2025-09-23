@@ -27,8 +27,15 @@ def _create_orchestrator(
         return Douglas(config_path=config_path)
 
     inferred_path = Path("douglas.yaml")
-    if inferred_path.exists() or default_config is None:
+    if inferred_path.exists():
         return Douglas(inferred_path)
+    if default_config is None:
+        typer.secho(
+            f"Error: No configuration file found at '{inferred_path.resolve()}' and no default configuration provided.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
 
     return Douglas(
         config_path=inferred_path,
