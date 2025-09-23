@@ -194,9 +194,12 @@ def _spec_from_mapping(
         paths = None
     elif isinstance(paths_value, (str, bytes, bytearray)):
         paths = [paths_value]
+    elif isinstance(paths_value, Iterable):
+        paths = paths_value
     else:
-        paths = paths_value  # type: ignore[assignment]
-
+        raise SecurityConfigurationError(
+            "Security tool 'paths' or 'targets' must be an iterable of path-like objects."
+        )
     return _spec_from_name(name_value, default_paths, args, paths)
 
 
