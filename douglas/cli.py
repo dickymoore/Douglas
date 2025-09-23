@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+MERGE_CONFLICT< codex/comment-on-init-command-behavior
 from copy import deepcopy
+MERGE_CONFLICT=
+import importlib.resources as resources
+MERGE_CONFLICT> main
 from pathlib import Path
-from typing import Optional
+from string import Template
+from typing import Callable, Optional
 
 import typer
+import yaml
 
 from douglas.core import Douglas
 
@@ -18,6 +24,7 @@ _DEFAULT_INIT_CONFIG = {
     "history": {"max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH},
 }
 
+MERGE_CONFLICT< codex/comment-on-init-command-behavior
 
 def _create_orchestrator(
     config_path: Optional[Path], *, default_config: Optional[dict] = None
@@ -29,11 +36,40 @@ def _create_orchestrator(
     else:
         return Douglas(config_path=path)
 
+MERGE_CONFLICT=
+def _load_default_init_config() -> dict:
+    """Load the seed configuration used when bootstrapping a new project."""
+
+    try:
+        template_path = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+        template_text = template_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, OSError):
+        # Fallback to a minimal configuration when the template file is missing
+        # or cannot be read due to I/O errors.
+        return {
+            "project": {"language": "python"},
+            "ai": {"provider": "openai", "model": "gpt-4"},
+            "history": {
+                "max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH,
+            },
+        }
+
+    rendered = Template(template_text).safe_substitute(
+        PROJECT_NAME="DouglasProject"
+    )
+    config = yaml.safe_load(rendered) or {}
+MERGE_CONFLICT> main
+
+    history_cfg = config.setdefault("history", {})
+    history_cfg.setdefault("max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH)
+
+    return config
 
 
-@app.command()
-def run(
-    config: Optional[Path] = typer.Option(
+def _config_option(help_text: str) -> Optional[Path]:
+    """Shared configuration file option declaration for CLI commands."""
+
+    return typer.Option(
         None,
         "--config",
         "-c",
@@ -41,8 +77,58 @@ def run(
         file_okay=True,
         dir_okay=False,
         resolve_path=True,
-        help="Path to the douglas.yaml configuration file to use.",
+        help=help_text,
     )
+
+
+def _create_orchestrator(
+    config_path: Optional[Path],
+    *,
+    default_config_factory: Optional[Callable[[], dict]] = None,
+    allow_missing_config: bool = False,
+) -> Douglas:
+    """Instantiate the Douglas orchestrator using an optional config override."""
+
+    if config_path is not None:
+        return Douglas(config_path=config_path)
+
+    inferred_path = Path("douglas.yaml")
+    if inferred_path.exists():
+        return Douglas(config_path=inferred_path)
+
+    if default_config_factory is not None:
+        try:
+            config_data = default_config_factory()
+        except Exception as exc:  # pragma: no cover - defensive failure mode
+            raise FileNotFoundError(
+                "No configuration file found at "
+                f"'{inferred_path}' and the default configuration factory "
+                f"raised {exc.__class__.__name__}: {exc}."
+            ) from exc
+
+        if config_data is None:
+            raise FileNotFoundError(
+                f"No configuration file found at '{inferred_path}' and the "
+                "default configuration factory returned None."
+            )
+
+        return Douglas(config_path=inferred_path, config_data=config_data)
+
+    if allow_missing_config:
+        return Douglas(config_path=inferred_path, config_data={})
+
+    raise FileNotFoundError(
+        "No douglas.yaml configuration file found. Run `douglas init "
+        "<project-name>` to create a new project or ensure you are in a "
+        "valid Douglas project directory."
+    )
+
+
+@app.command()
+def run(
+    config: Optional[Path] = _config_option(
+        "Path to the douglas.yaml configuration file to use."
+    ),
 ) -> None:
     """Execute the configured Douglas development loop."""
 
@@ -52,16 +138,9 @@ def run(
 
 @app.command()
 def check(
-    config: Optional[Path] = typer.Option(
-        None,
-        "--config",
-        "-c",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        resolve_path=True,
-        help="Path to the douglas.yaml configuration file to validate.",
-    )
+    config: Optional[Path] = _config_option(
+        "Path to the douglas.yaml configuration file to validate."
+    ),
 ) -> None:
     """Validate configuration and environment prerequisites."""
 
@@ -71,28 +150,28 @@ def check(
 
 @app.command()
 def init(
-    project_name: str = typer.Argument(..., help="Directory name for the new project."),
+    project_name: str = typer.Argument(
+        ..., help="Directory name for the new project."
+    ),
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
         help="Skip prompts when generating project scaffolding.",
     ),
-    config: Optional[Path] = typer.Option(
-        None,
-        "--config",
-        "-c",
-        exists=True,
-        file_okay=True,
-        dir_okay=False,
-        resolve_path=True,
-        help="Path to the douglas.yaml configuration file to seed the scaffold.",
+    config: Optional[Path] = _config_option(
+        "Path to the douglas.yaml configuration file to seed the scaffold."
     ),
 ) -> None:
     """Scaffold a new repository using Douglas templates."""
 
     orchestrator = _create_orchestrator(
         config,
+MERGE_CONFLICT< codex/comment-on-init-command-behavior
         default_config=_DEFAULT_INIT_CONFIG,
+MERGE_CONFLICT=
+        default_config_factory=_load_default_init_config,
+        allow_missing_config=True,
+MERGE_CONFLICT> main
     )
     orchestrator.init_project(project_name, non_interactive=non_interactive)
 

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 
@@ -22,6 +22,7 @@ from douglas.journal import questions as question_journal
 from douglas.pipelines import demo as demopipe
 from douglas.pipelines import lint
 from douglas.pipelines import retro as retropipe
+from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
 from douglas.pipelines import typecheck
 from douglas.providers.llm_provider import LLMProvider
@@ -51,12 +52,46 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
+MERGE_CONFLICT< codex/comment-on-init-command-behavior
     def __init__(self, config_path="douglas.yaml", config_data: Optional[dict[str, Any]] = None):
         self.config_path = Path(config_path)
         if config_data is None:
             self.config = self.load_config(self.config_path)
         else:
             self.config = deepcopy(config_data)
+MERGE_CONFLICT=
+    def __init__(
+        self,
+        config_path: Union[str, Path, None] = "douglas.yaml",
+        *,
+        config: Optional[Dict[str, Any]] = None,
+        config_data: Optional[Dict[str, Any]] = None,
+    ):
+        if config is not None and config_data is not None:
+            raise ValueError(
+                "Only one of 'config' or 'config_data' may be provided when instantiating Douglas."
+            )
+
+        if config_path is None:
+            resolved_path = Path("douglas.yaml")
+        else:
+            resolved_path = Path(config_path)
+
+        self.config_path = resolved_path
+
+        source_config: Optional[Dict[str, Any]]
+        if config is not None:
+            source_config = config
+        elif config_data is not None:
+            source_config = config_data
+        else:
+            source_config = None
+
+        if source_config is None:
+            self.config = self.load_config(self.config_path)
+        else:
+            self.config = deepcopy(source_config)
+MERGE_CONFLICT> main
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get("project", {}).get("name", "")
         self.lm_provider = self.create_llm_provider()
@@ -90,11 +125,19 @@ class Douglas:
             sys.exit(1)
 
     def create_llm_provider(self):
-        provider_name = self.config.get("ai", {}).get("provider", "openai")
-        if provider_name == "openai":
-            return LLMProvider.create_provider("openai")
-        else:
-            print(f"LLM provider '{provider_name}' not supported.")
+        ai_config = self.config.get("ai", {}) or {}
+        provider_name = ai_config.get("provider", "openai")
+        if provider_name is None:
+            provider_name = "openai"
+
+        normalized_name = str(provider_name).strip().lower()
+        provider_options = dict(ai_config)
+        provider_options.pop("provider", None)
+
+        try:
+            return LLMProvider.create_provider(normalized_name, **provider_options)
+        except ValueError as exc:
+            print(f"LLM provider '{provider_name}' not supported: {exc}")
             sys.exit(1)
 
     def _resolve_sprint_length(self) -> Optional[int]:
@@ -269,11 +312,19 @@ class Douglas:
                         self._record_step_outcome(
                             step_name, executed=True, success=False
                         )
-                        self._handle_step_failure(
-                            step_name,
+                        failure_message = getattr(
+                            exc,
+                            "douglas_failure_message",
                             f"{step_name} step exited with status {exc.code}.",
-                            None,
                         )
+                        failure_logs = getattr(exc, "douglas_failure_logs", None)
+                        failure_already_handled = getattr(
+                            exc, "douglas_failure_handled", False
+                        )
+                        if not failure_already_handled:
+                            self._handle_step_failure(
+                                step_name, failure_message, failure_logs
+                            )
                         raise
                     except Exception as exc:
                         self._record_step_outcome(
@@ -724,6 +775,102 @@ class Douglas:
                 "test",
                 "Executed automated tests using pytest.",
                 {"status": "passed"},
+            )
+            return StepExecutionResult(True, True, override_event, already_recorded)
+
+        if step_name == "security":
+            print("Running security step...")
+            tools_config = (
+                step_config.get("tools") if isinstance(step_config, dict) else None
+            )
+            default_paths = None
+            if isinstance(step_config, dict):
+                default_paths = (
+                    step_config.get("paths")
+                    or step_config.get("targets")
+                    or step_config.get("directories")
+                )
+
+            try:
+                report = securitypipe.run_security(
+                    tools=tools_config,
+                    default_paths=default_paths,
+                )
+            except securitypipe.SecurityCheckError as exc:
+                exit_code = exc.exit_code or 1
+                command_display = " ".join(exc.command)
+                logs = self._format_command_output(
+                    command_display,
+                    exc.stdout,
+                    exc.stderr,
+                    exc.exit_code,
+                )
+                message = (
+                    f"Security check '{exc.tool}' failed with exit code {exit_code}."
+                )
+                bug_id = self._handle_step_failure("security", message, logs)
+                summary_details: Dict[str, Any] = {
+                    "status": "failed",
+                    "tool": exc.tool,
+                    "exit_code": exit_code,
+                    "command": exc.command,
+                }
+                if bug_id:
+                    summary_details["bug_id"] = bug_id
+                self._record_agent_summary(
+                    "Security",
+                    "security",
+                    message,
+                    summary_details,
+                )
+                sys_exit = SystemExit(exit_code)
+                sys_exit.douglas_failure_message = message
+                sys_exit.douglas_failure_logs = logs
+                sys_exit.douglas_failure_handled = True
+                raise sys_exit from exc
+
+            tool_names = report.tool_names()
+            history_tools: List[Dict[str, Any]] = []
+            for result in report.results:
+                entry: Dict[str, Any] = {
+                    "name": result.name,
+                    "command": result.command,
+                    "exit_code": result.exit_code,
+                }
+                stdout_excerpt = self._tail_log_excerpt(result.stdout)
+                stderr_excerpt = self._tail_log_excerpt(result.stderr)
+                if stdout_excerpt:
+                    entry["stdout"] = stdout_excerpt
+                if stderr_excerpt:
+                    entry["stderr"] = stderr_excerpt
+                history_tools.append(entry)
+
+            self._write_history_event(
+                "security_checks_passed",
+                {"tools": history_tools},
+            )
+
+            summary_details = {
+                "status": "passed",
+                "tools": tool_names,
+            }
+            if history_tools:
+                summary_details["commands"] = [
+                    entry.get("command") for entry in history_tools
+                ]
+
+            if tool_names:
+                summary_text = "Completed security checks with {}.".format(
+                    ", ".join(tool_names)
+                )
+            else:
+                summary_text = "Completed configured security checks."
+
+            self._record_agent_summary(
+                "Security",
+                "security",
+                summary_text,
+                summary_details,
             )
             return StepExecutionResult(True, True, override_event, already_recorded)
 
@@ -2630,12 +2777,14 @@ class Douglas:
             "cadence": {
                 "ProductOwner": {"sprint_review": "per_sprint"},
                 "ScrumMaster": {"retrospective": "per_sprint"},
+                "DevOps": {"security_checks": "per_feature"},
             },
             "loop": {
                 "steps": [
                     {"name": "generate"},
                     {"name": "lint"},
                     {"name": "typecheck"},
+                    {"name": "security"},
                     {"name": "test"},
                     {"name": "retro", "cadence": "per_sprint"},
                     {"name": "demo", "cadence": "per_sprint"},
