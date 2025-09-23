@@ -42,17 +42,33 @@ pip install -e .[dev]
 pre-commit install
 ```
 
-The Typer-based CLI entry point currently exposes only a `hello` command for smoke testing (`python cli.py hello`). Planned verbs such as `run`, `check`, and `init` are implemented in the Python API but not yet wired into the CLI.
+With Douglas installed you can drive the orchestrator directly from the packaged Typer CLI:
+
+```bash
+# Validate your configuration and environment
+douglas check
+
+# Run the AI-assisted development loop using the default douglas.yaml
+douglas run
+
+# Scaffold a brand new project in ./my-new-service using Douglas templates
+douglas init my-new-service
+
+# Provide a custom configuration file if you keep it somewhere else
+douglas run --config path/to/douglas.yaml
+```
 
 ### Running the orchestrator without installing
 
-If you prefer not to install the package, run the repository-local CLI module directly:
+If you prefer not to install the package, invoke the CLI from the source tree:
 
 ```bash
-python cli.py hello
+python -m douglas.cli check
+python -m douglas.cli run
+python -m douglas.cli init sample-project
 ```
 
-To execute the development loop today, instantiate `Douglas` from Python (see the [tutorial](#end-to-end-tutorial)).
+The commands above defer to the `Douglas` class under the hood, so you can also instantiate it directly from Python for advanced orchestration (see the [tutorial](#end-to-end-tutorial)).
 
 ## Feature catalogue
 
