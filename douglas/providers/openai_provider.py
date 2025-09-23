@@ -194,7 +194,9 @@ class OpenAIProvider(LLMProvider):
             content, (str, bytes, bytearray)
         ):
             obj_id = id(content)
-            if obj_id in seen or any(obj is content for obj in reference_chain):
+            if obj_id in seen:
+                return ""
+            if any(obj is content for obj in reference_chain):
                 return ""
             seen.add(obj_id)
             reference_chain.append(content)
