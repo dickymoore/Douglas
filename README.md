@@ -53,6 +53,7 @@ douglas --help
 
 - AI‑assisted code generation through a provider interface
 - Configurable workflow defined in `douglas.yaml` (plan, generate, lint, typecheck, test, review, commit, pr)
+- Sprint-aware cadence controls to orchestrate demos, retros, and release steps
 - Provider‑agnostic design with pluggable adapters
 - Templates and bootstrap via `douglas init`
 - Local‑first CI strategy with pre‑commit and incremental checks
@@ -95,19 +96,31 @@ ai:
   provider: "openai"
   model: "gpt-4"
   prompt: "system_prompt.md"
+cadence:
+  ProductOwner:
+    sprint_review: per_sprint
+  ScrumMaster:
+    retrospective: per_sprint
 loop:
   steps:
-    - generate
-    - lint
-    - typecheck
-    - test
-    - review
-    - commit
-    - pr
+    - name: generate
+    - name: lint
+    - name: typecheck
+    - name: test
+    - name: retro
+      cadence: per_sprint
+    - name: demo
+      cadence: per_sprint
+    - name: commit
+    - name: push
+    - name: pr
   exit_conditions:
-    - "tests_pass"
+    - "ci_pass"
+    - "sprint_demo_complete"
   max_iterations: 3
 push_policy: "per_feature"
+sprint:
+  length_days: 10
 vcs:
   default_branch: "main"
   conventional_commits: true
@@ -123,7 +136,32 @@ paths:
 
 Exit conditions are evaluated after each loop iteration. Configure
 `loop.max_iterations` to cap the number of passes while still exiting early when
-conditions like `tests_pass` or `ci_pass` are satisfied.
+conditions like `tests_pass`, `ci_pass`, or `sprint_demo_complete` are satisfied.
+
+### Cadence configuration
+
+The optional top-level `cadence` map assigns scheduling preferences to each
+role/activity pair. Values can be simple strings (for example `per_sprint` or
+`daily`) or objects with a `frequency` field. When omitted, Douglas falls back to
+built-in defaults for common steps.
+
+Each `loop.steps` entry can also declare its own cadence. A step-level cadence
+overrides role defaults so you can, for example, run the demo only on the last
+day of the sprint:
+
+```yaml
+loop:
+  steps:
+    - name: demo
+      cadence: per_sprint
+```
+
+### Sprint settings
+
+Set `sprint.length_days` to communicate the length of a sprint to the cadence
+engine. The sprint manager tracks the current day, completed features/bugs, and
+whether per-sprint pushes or demos have already run. If the length is omitted,
+Douglas assumes a ten-day sprint.
 
 ### Push/PR policy
 
@@ -136,6 +174,10 @@ Control when Douglas pushes commits or opens pull requests with `push_policy`:
 
 When a policy defers release (for example `per_sprint`), the loop logs why the
 push or PR step was skipped so you know the decision was intentional.
+
+The sprint manager also records the cadence decisions in its history so exit
+conditions like `sprint_demo_complete` or `push_complete` can end the loop as
+soon as the relevant milestones are satisfied.
 
 ## Architecture Overview
 

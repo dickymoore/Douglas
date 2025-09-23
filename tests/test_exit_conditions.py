@@ -8,7 +8,9 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas.core import Douglas
-from douglas.pipelines import test as testpipe
+from types import SimpleNamespace
+
+from douglas.pipelines import demo as demo_pipeline, test as testpipe
 
 
 def _init_repo(
@@ -137,3 +139,34 @@ def test_loop_repeats_until_iteration_limit(monkeypatch, tmp_path):
     douglas.run_loop()
 
     assert test_calls == ['test', 'test'], 'Loop should run for the configured iteration limit when exit conditions are absent.'
+
+
+def test_exit_condition_for_demo_completion(monkeypatch, tmp_path):
+    config_path = _init_repo(
+        tmp_path,
+        steps=[{'name': 'demo', 'cadence': 'daily'}],
+        exit_conditions=['sprint_demo_complete'],
+        max_iterations=3,
+    )
+
+    monkeypatch.setattr(Douglas, 'create_llm_provider', lambda self: object())
+
+    demo_calls: list[int] = []
+
+    def fake_demo(context):
+        demo_calls.append(context['sprint_manager'].current_iteration)
+        project_root = context['project_root']
+        output_path = project_root / 'demos' / 'demo.md'
+        return SimpleNamespace(
+            output_path=output_path,
+            format='md',
+            sprint_folder=f"sprint-{context['sprint_manager'].sprint_index}",
+            as_event_payload=lambda: {'output': str(output_path)},
+        )
+
+    monkeypatch.setattr(demo_pipeline, 'write_demo_pack', fake_demo)
+
+    douglas = Douglas(config_path)
+    douglas.run_loop()
+
+    assert demo_calls == [1]

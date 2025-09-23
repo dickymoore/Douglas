@@ -106,3 +106,19 @@ def test_should_run_step_helper_exposes_context():
 
     assert should_run_step(context.role, context.activity, context) is True
     assert context.decision is not None
+
+
+def test_step_level_cadence_overrides_role_defaults():
+    sprint, cadence = _build_manager({}, sprint_length=3)
+
+    early = cadence.evaluate_step('demo', {'name': 'demo', 'cadence': 'per_sprint'})
+    assert early.should_run is False
+
+    sprint.current_day = sprint.sprint_length_days
+    final_day = cadence.evaluate_step('demo', {'name': 'demo', 'cadence': 'per_sprint'})
+    assert final_day.should_run is True
+    assert final_day.event_type == 'sprint'
+
+    sprint.record_step_execution('demo', final_day.event_type)
+    repeat = cadence.evaluate_step('demo', {'name': 'demo', 'cadence': 'per_sprint'})
+    assert repeat.should_run is False

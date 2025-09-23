@@ -2462,12 +2462,18 @@ class Douglas:
                 'model': self.config.get('ai', {}).get('model', 'gpt-4'),
                 'prompt': 'system_prompt.md',
             },
+            'cadence': {
+                'ProductOwner': {'sprint_review': 'per_sprint'},
+                'ScrumMaster': {'retrospective': 'per_sprint'},
+            },
             'loop': {
                 'steps': [
                     {'name': 'generate'},
                     {'name': 'lint'},
                     {'name': 'typecheck'},
                     {'name': 'test'},
+                    {'name': 'retro', 'cadence': 'per_sprint'},
+                    {'name': 'demo', 'cadence': 'per_sprint'},
                     {'name': 'commit'},
                     {'name': 'push'},
                     {'name': 'pr'},

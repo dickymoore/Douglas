@@ -42,9 +42,11 @@ loop:
     - name: retro
       role: ScrumMaster
       activity: retrospective
+      cadence: per_sprint
     - name: demo
       role: ProductOwner
       activity: sprint_review
+      cadence: per_sprint
     - name: commit
       role: Developer
       activity: development

@@ -51,9 +51,10 @@ def _init_repo(
         text=True,
     )
 
+    demo_cadence_value = demo_cadence or "per_sprint"
     steps = [
         {"name": "commit"},
-        {"name": "demo"},
+        {"name": "demo", "cadence": demo_cadence_value},
         {"name": "push"},
         {"name": "pr"},
     ]
