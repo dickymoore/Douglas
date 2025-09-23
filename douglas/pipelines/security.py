@@ -14,95 +14,42 @@ __all__ = [
     "run_security",
 ]
 
-
 ToolEntry = Union[str, Sequence[str], Mapping[str, object]]
-
 
 @dataclass(slots=True)
 class SecurityToolResult:
-    """Output captured from an individual security tool invocation."""
-
     name: str
     command: list[str]
     stdout: str
     stderr: str
     exit_code: int
 
-
 @dataclass(slots=True)
 class SecurityReport:
-    """Aggregated results for all executed security tools."""
-
     results: list[SecurityToolResult]
 
     def tool_names(self) -> list[str]:
         return [result.name for result in self.results]
 
-
-class SecurityConfigurationError(ValueError):
-    """Raised when the security pipeline receives an invalid configuration."""
-
-
-class SecurityCheckError(RuntimeError):
-    """Raised when an underlying security tool fails to execute cleanly."""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        tool: str,
-        command: Sequence[str],
-        exit_code: int,
-        stdout: Optional[str] = None,
-        stderr: Optional[str] = None,
-    ) -> None:
-        super().__init__(message)
-        self.tool = tool
-        self.command = list(command)
-        self.exit_code = exit_code
-        self.stdout = stdout or ""
-        self.stderr = stderr or ""
-
+class SecurityConfigurationError(ValueError): ...
+class SecurityCheckError(RuntimeError): ...
 
 @dataclass(slots=True)
 class _SecurityToolSpec:
     name: str
     command: list[str]
 
-
 def run_security(
     tools: Optional[Iterable[ToolEntry]] = None,
     *,
     default_paths: Optional[Iterable[str]] = None,
 ) -> SecurityReport:
-    """Execute configured security tooling (Bandit, Semgrep, or custom commands).
-
-    Parameters
-    ----------
-    tools:
-        Optional iterable describing the tools to run. Entries may be:
-
-        - a string alias (``"bandit"`` or ``"semgrep"``),
-        - a sequence of command arguments,
-        - or a mapping with ``name``/``args``/``paths``/``command`` keys.
-
-    default_paths:
-        Paths appended to alias-based commands when explicit targets are not
-        provided. Defaults to the current directory.
-    """
-
     specs = _normalise_tools(tools, default_paths)
     results: list[SecurityToolResult] = []
-
     for spec in specs:
-        result = _run_tool(spec)
-        results.append(result)
-
-    tool_display = ", ".join(result.name for result in results) or "security"
-    print(f"Security checks completed: {tool_display}.")
-
+        results.append(_run_tool(spec))
+    print(f"Security checks completed: {', '.join(r.name for r in results)}.")
     return SecurityReport(results)
-
 
 def _normalise_tools(
     tools: Optional[Iterable[ToolEntry]], default_paths: Optional[Iterable[str]]
