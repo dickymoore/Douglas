@@ -246,7 +246,9 @@ class OpenAIProvider(LLMProvider):
             reference_chain = []
 
         obj_id = id(value)
-        if obj_id in seen or any(obj is value for obj in reference_chain):
+        if obj_id in seen:
+            return ""
+        if any(obj is value for obj in reference_chain):
             return ""
 
         seen.add(obj_id)
