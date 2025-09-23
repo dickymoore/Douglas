@@ -106,6 +106,7 @@ loop:
     - pr
   exit_conditions:
     - "tests_pass"
+  max_iterations: 3
 vcs:
   default_branch: "main"
   conventional_commits: true
@@ -118,6 +119,10 @@ paths:
   app_src: "src"
   tests: "tests"
 ```
+
+Exit conditions are evaluated after each loop iteration. Configure
+`loop.max_iterations` to cap the number of passes while still exiting early when
+conditions like `tests_pass` or `ci_pass` are satisfied.
 
 ## Architecture Overview
 

@@ -107,6 +107,30 @@ class Douglas:
             return 'per_feature'
         return normalized
 
+    def _resolve_iteration_limit(self) -> int:
+        loop_config = self.config.get('loop', {}) or {}
+
+        candidate = loop_config.get('max_iterations')
+        if candidate is None:
+            candidate = loop_config.get('iterations')
+
+        if candidate is None:
+            return 1
+
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            print(
+                f"Warning: Invalid loop iteration limit '{candidate}'; defaulting to 1 iteration."
+            )
+            return 1
+
+        if value <= 0:
+            print("Warning: Loop iteration limit must be positive; defaulting to 1 iteration.")
+            return 1
+
+        return value
+
     def _resolve_run_state_path(self) -> Path:
         paths_cfg = self.config.get('paths', {}) or {}
 
@@ -138,11 +162,7 @@ class Douglas:
 
         error: Optional[BaseException] = None
         try:
-            self._refresh_question_state()
-
             steps = self._normalize_step_configs(self.config.get('loop', {}).get('steps', []))
-            executed_steps: List[str] = []
-            self._executed_step_names = set()
             self._configured_steps = {str(step['name']).lower() for step in steps}
             commit_step_present = 'commit' in self._configured_steps
             self._loop_outcomes = {}
@@ -150,72 +170,90 @@ class Douglas:
             self._ci_monitoring_triggered = False
             self._ci_monitoring_deferred = False
 
-            for step_config in steps:
-                if self._exit_conditions_met(executed_steps):
+            iteration_limit = self._resolve_iteration_limit()
+            iteration_index = 0
+            last_executed_steps: List[str] = []
+
+            while iteration_index < iteration_limit:
+                if self._exit_conditions_met(last_executed_steps):
                     print("Exit condition satisfied; ending loop early.")
                     break
 
-                step_name = step_config['name']
-                decision = self.cadence_manager.evaluate_step(step_name, step_config)
-                if not decision.should_run:
-                    print(f"Skipping {step_name} step: {decision.reason}")
-                    self._record_step_outcome(step_name, executed=False, success=False)
-                    continue
+                iteration_index += 1
+                self._refresh_question_state()
 
-                role_for_step = self._resolve_step_role(step_name)
-                if self._should_defer_for_questions(role_for_step, step_name):
-                    self._record_step_outcome(step_name, executed=False, success=False)
-                    continue
+                executed_steps: List[str] = []
+                self._executed_step_names = set()
+                self._loop_outcomes = {}
+                self._ci_status = None
+                self._ci_monitoring_triggered = False
+                self._ci_monitoring_deferred = False
 
-                try:
-                    result = self._execute_step(step_name, step_config, decision)
-                except SystemExit as exc:
-                    self._record_step_outcome(step_name, executed=True, success=False)
-                    self._handle_step_failure(
-                        step_name,
-                        f"{step_name} step exited with status {exc.code}.",
-                        None,
-                    )
-                    raise
-                except Exception as exc:
-                    self._record_step_outcome(step_name, executed=True, success=False)
-                    self._handle_step_failure(
-                        step_name,
-                        f"{step_name} step raised an exception: {exc}",
-                        None,
-                    )
-                    raise
+                for step_config in steps:
+                    step_name = step_config['name']
+                    decision = self.cadence_manager.evaluate_step(step_name, step_config)
+                    if not decision.should_run:
+                        print(f"Skipping {step_name} step: {decision.reason}")
+                        self._record_step_outcome(step_name, executed=False, success=False)
+                        continue
 
-                if result.executed:
-                    event_type = (
-                        result.override_event
-                        if result.override_event is not None
-                        else decision.event_type
-                    )
-                    if not result.already_recorded:
-                        self.sprint_manager.record_step_execution(step_name, event_type)
-                    self._executed_step_names.add(step_name.lower())
-                    executed_steps.append(step_name)
-                    self._record_step_outcome(step_name, executed=True, success=result.success)
-                    if not result.success and not result.failure_reported:
+                    role_for_step = self._resolve_step_role(step_name)
+                    if self._should_defer_for_questions(role_for_step, step_name):
+                        self._record_step_outcome(step_name, executed=False, success=False)
+                        continue
+
+                    try:
+                        result = self._execute_step(step_name, step_config, decision)
+                    except SystemExit as exc:
+                        self._record_step_outcome(step_name, executed=True, success=False)
                         self._handle_step_failure(
                             step_name,
-                            result.failure_details or f"{step_name} step reported failure.",
+                            f"{step_name} step exited with status {exc.code}.",
                             None,
                         )
-                else:
-                    self._record_step_outcome(step_name, executed=False, success=False)
+                        raise
+                    except Exception as exc:
+                        self._record_step_outcome(step_name, executed=True, success=False)
+                        self._handle_step_failure(
+                            step_name,
+                            f"{step_name} step raised an exception: {exc}",
+                            None,
+                        )
+                        raise
+
+                    if result.executed:
+                        event_type = (
+                            result.override_event
+                            if result.override_event is not None
+                            else decision.event_type
+                        )
+                        if not result.already_recorded:
+                            self.sprint_manager.record_step_execution(step_name, event_type)
+                        self._executed_step_names.add(step_name.lower())
+                        executed_steps.append(step_name)
+                        self._record_step_outcome(step_name, executed=True, success=result.success)
+                        if not result.success and not result.failure_reported:
+                            self._handle_step_failure(
+                                step_name,
+                                result.failure_details or f"{step_name} step reported failure.",
+                                None,
+                            )
+                    else:
+                        self._record_step_outcome(step_name, executed=False, success=False)
+
+                if not commit_step_present:
+                    committed, _ = self._commit_if_needed()
+                    if committed:
+                        self.sprint_manager.record_step_execution('commit', None)
+
+                self.sprint_manager.finish_iteration()
+                print("Douglas loop iteration completed.")
+                last_executed_steps = executed_steps
 
                 if self._exit_conditions_met(executed_steps):
                     print("Exit condition satisfied; ending loop early.")
                     break
 
-            if not commit_step_present:
-                committed, _ = self._commit_if_needed()
-                if committed:
-                    self.sprint_manager.record_step_execution('commit', None)
-
-            self.sprint_manager.finish_iteration()
             print("Douglas loop completed.")
         except BaseException as exc:
             error = exc

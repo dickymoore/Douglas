@@ -58,6 +58,7 @@ loop:
       activity: code_review
   exit_conditions:
     - "ci_pass"
+  max_iterations: 3
 push_policy: per_feature
 sprint:
   length_days: 10
