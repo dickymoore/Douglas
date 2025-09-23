@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 import yaml
 
@@ -1298,6 +1298,23 @@ class Douglas:
             )
 
             if result.returncode != 0:
+                if self._should_ignore_semgrep_failure(command, result):
+                    skip_message = (
+                        "Semgrep command failed due to environment issues; skipping default check."
+                    )
+                    print(skip_message)
+                    logs.append(skip_message)
+                    self._write_history_event(
+                        "local_checks_skip",
+                        {
+                            "command": display,
+                            "reason": "semgrep_environment_error",
+                            "returncode": result.returncode,
+                            "stdout_excerpt": self._tail_log_excerpt(result.stdout),
+                            "stderr_excerpt": self._tail_log_excerpt(result.stderr),
+                        },
+                    )
+                    continue
                 self._loop_outcomes["local_checks"] = False
                 self._write_history_event(
                     "local_checks_fail",
@@ -1318,6 +1335,39 @@ class Douglas:
             },
         )
         return True, "\n\n".join(logs)
+
+    def _should_ignore_semgrep_failure(
+        self,
+        command: Sequence[str],
+        result: subprocess.CompletedProcess[str],
+    ) -> bool:
+        if not command or command[0] != "semgrep":
+            return False
+        if result.returncode in (0, 1):
+            return False
+
+        combined_output = "\n".join(
+            part for part in (result.stdout or "", result.stderr or "") if part
+        ).lower()
+        if not combined_output:
+            return False
+
+        network_markers = [
+            "connectionerror",
+            "connection error",
+            "cannot connect",
+            "failed to establish a new connection",
+            "network is unreachable",
+            "temporary failure in name resolution",
+            "proxyerror",
+            "max retries exceeded",
+            "check your internet connection",
+            "offline",
+            "tls",
+            "ssl error",
+            "certificate verify failed",
+        ]
+        return any(marker in combined_output for marker in network_markers)
 
     def _format_command_output(
         self,
