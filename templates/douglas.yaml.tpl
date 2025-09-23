@@ -54,8 +54,11 @@ loop:
     - name: pr
       role: Developer
       activity: code_review
+  exit_conditions:
+    - "ci_pass"
 sprint:
   length_days: 10
+push_policy: "per_feature"
 demo:
   format: "md"
   include:

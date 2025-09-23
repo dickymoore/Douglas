@@ -36,6 +36,8 @@ def test_init_project_creates_scaffold(monkeypatch, tmp_path):
     scaffold_config = yaml.safe_load((target_dir / 'douglas.yaml').read_text(encoding='utf-8'))
     assert scaffold_config['project']['name'] == target_dir.name
     assert scaffold_config['project']['language'] == 'python'
+    assert scaffold_config['push_policy'] == 'per_feature'
+    assert scaffold_config['loop']['exit_conditions'] == ['ci_pass']
 
     readme_text = (target_dir / 'README.md').read_text(encoding='utf-8')
     assert f"This Python project" in readme_text
@@ -86,3 +88,4 @@ def test_init_project_respects_language_override(monkeypatch, tmp_path):
 
     scaffold_config = yaml.safe_load((target_dir / 'douglas.yaml').read_text(encoding='utf-8'))
     assert scaffold_config['project']['language'] == 'go'
+    assert scaffold_config['push_policy'] == 'per_feature'

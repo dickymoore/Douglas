@@ -107,6 +107,7 @@ loop:
   exit_conditions:
     - "tests_pass"
   max_iterations: 3
+push_policy: "per_feature"
 vcs:
   default_branch: "main"
   conventional_commits: true
@@ -123,6 +124,18 @@ paths:
 Exit conditions are evaluated after each loop iteration. Configure
 `loop.max_iterations` to cap the number of passes while still exiting early when
 conditions like `tests_pass` or `ci_pass` are satisfied.
+
+### Push/PR policy
+
+Control when Douglas pushes commits or opens pull requests with `push_policy`:
+
+- `per_feature` – push after each feature is finished (default).
+- `per_bug` – push once a bug fix is completed.
+- `per_epic` – defer until an entire epic is ready.
+- `per_sprint` – hold changes locally and push/PR on the final sprint day.
+
+When a policy defers release (for example `per_sprint`), the loop logs why the
+push or PR step was skipped so you know the decision was intentional.
 
 ## Architecture Overview
 
