@@ -23,23 +23,11 @@ def _create_orchestrator(
     config_path: Optional[Path], *, default_config: Optional[dict] = None
 ) -> Douglas:
     """Instantiate the Douglas orchestrator using an optional config override."""
-    if config_path is not None:
-        return Douglas(config_path=config_path)
-
-    inferred_path = Path("douglas.yaml")
-    if inferred_path.exists():
-        return Douglas(inferred_path)
-    elif default_config is not None:
-        return Douglas(
-            config_path=inferred_path,
-            config_data=deepcopy(default_config),
-        )
+    path = config_path if config_path is not None else Path("douglas.yaml")
+    if default_config is not None:
+        return Douglas(config_path=path, config_data=deepcopy(default_config))
     else:
-        raise FileNotFoundError(
-            f"Configuration file '{inferred_path}' does not exist and no default configuration was provided.\n"
-            "To create a new project with a default configuration, run:\n"
-            "    douglas init <project_name>\n"
-        )
+        return Douglas(config_path=path)
 
 
 
