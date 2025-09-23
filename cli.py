@@ -1,12 +1,8 @@
-import typer
+"""Backwards-compatible shim that exposes the packaged Douglas CLI."""
 
-app = typer.Typer()
+from douglas.cli import app, main
 
-
-@app.command()
-def hello():
-    print("Douglas CLI is ready.")
-
+__all__ = ["app", "main"]
 
 if __name__ == "__main__":
-    app()
+    main()

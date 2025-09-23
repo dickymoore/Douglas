@@ -9,7 +9,7 @@ authors = [{ name = "Dicky Moore" }]
 dependencies = ["typer>=0.9", "pyyaml>=6.0"]
 
 [project.scripts]
-douglas = "douglas.cli:app"
+douglas = "douglas.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "black", "isort", "mypy", "types-PyYAML"]
