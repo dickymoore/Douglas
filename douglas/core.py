@@ -52,6 +52,8 @@ class Douglas:
         self.history_path = self.project_root / 'ai-inbox' / 'history.jsonl'
         self._loop_outcomes: Dict[str, Optional[bool]] = {}
         self._ci_status: Optional[str] = None
+        self._ci_monitoring_triggered: bool = False
+        self._ci_monitoring_deferred: bool = False
         self._configured_steps: set[str] = set()
         self._executed_step_names: set[str] = set()
         self._blocking_questions_by_role: Dict[str, List[question_journal.Question]] = {}
@@ -144,6 +146,8 @@ class Douglas:
             commit_step_present = 'commit' in self._configured_steps
             self._loop_outcomes = {}
             self._ci_status = None
+            self._ci_monitoring_triggered = False
+            self._ci_monitoring_deferred = False
 
             for step_config in steps:
                 if self._exit_conditions_met(executed_steps):
@@ -481,6 +485,8 @@ class Douglas:
             },
         )
 
+        return bug_id
+
     def _exit_conditions_met(self, executed_steps: List[str]) -> bool:
         exit_conditions = self.config.get('loop', {}).get('exit_conditions') or []
         for condition in exit_conditions:
@@ -762,6 +768,7 @@ class Douglas:
                     {'status': 'failed', 'reason': 'local_checks'},
                     handoff_ids=[handoff_id] if handoff_id else None,
                 )
+                self._ci_monitoring_deferred = False
                 return StepExecutionResult(
                     True,
                     False,
@@ -794,6 +801,12 @@ class Douglas:
                         'event_type': decision.event_type,
                     },
                 )
+                if 'pr' not in self._configured_steps:
+                    self._monitor_ci(source_step='push')
+                    self._ci_monitoring_deferred = False
+                else:
+                    print('Deferring CI monitoring until PR step completes.')
+                    self._ci_monitoring_deferred = True
                 return StepExecutionResult(True, True, decision.event_type, already_recorded)
 
             print("Push step failed; leaving commits local.")
@@ -808,6 +821,7 @@ class Douglas:
                     'policy': self.push_policy,
                 },
             )
+            self._ci_monitoring_deferred = False
             return StepExecutionResult(
                 True,
                 False,
@@ -829,9 +843,15 @@ class Douglas:
             decision = self.sprint_manager.should_open_pr(self.push_policy)
             if not decision.should_run:
                 print(f"Skipping pr step: {decision.reason}")
+                if self._ci_monitoring_deferred:
+                    self._monitor_ci(source_step='push')
+                    self._ci_monitoring_deferred = False
                 return StepExecutionResult(False, False, None, already_recorded)
             if not self._commits_ready_for_pr(decision.event_type):
                 print("No commits ready for PR; skipping pr step.")
+                if self._ci_monitoring_deferred:
+                    self._monitor_ci(source_step='push')
+                    self._ci_monitoring_deferred = False
                 return StepExecutionResult(False, False, None, already_recorded)
 
             pr_created, pr_metadata = self._open_pull_request()
@@ -847,7 +867,8 @@ class Douglas:
                         'metadata': pr_metadata,
                     },
                 )
-                self._monitor_ci()
+                self._monitor_ci(source_step='pr')
+                self._ci_monitoring_deferred = False
                 self._record_agent_summary(
                     'Developer',
                     'pr',
@@ -862,6 +883,9 @@ class Douglas:
 
             print("Failed to create pull request; leaving for manual follow-up.")
             self._handle_step_failure('pr', 'Pull request creation failed.', pr_metadata)
+            if self._ci_monitoring_deferred:
+                self._monitor_ci(source_step='push')
+                self._ci_monitoring_deferred = False
             self._record_agent_summary(
                 'Developer',
                 'pr',
@@ -1193,16 +1217,53 @@ class Douglas:
         except (subprocess.CalledProcessError, FileNotFoundError):
             return None
 
-    def _monitor_ci(self, max_attempts: int = 10, poll_interval: int = 10) -> Optional[bool]:
+    def _monitor_ci(
+        self,
+        source_step: str = 'pr',
+        max_attempts: int = 10,
+        poll_interval: int = 10,
+    ) -> Optional[bool]:
+        source_label = (source_step or 'pr').strip().lower() or 'pr'
+
+        if self._ci_monitoring_triggered:
+            print('CI monitoring already handled for this iteration; skipping duplicate check.')
+            if self._ci_status == 'success':
+                return True
+            if self._ci_status == 'failure':
+                return False
+            return None
+
+        self._ci_monitoring_triggered = True
+
         if shutil.which('gh') is None:
             print('GitHub CLI not available; skipping CI monitoring.')
             self._ci_status = None
+            self._record_agent_summary(
+                'DevOps',
+                'ci',
+                'CI monitoring skipped because the GitHub CLI is unavailable.',
+                {
+                    'status': 'skipped',
+                    'reason': 'missing_cli',
+                    'source_step': source_label,
+                },
+            )
             return None
 
         commit_sha = self._get_current_commit()
         if not commit_sha:
             print('Unable to determine latest commit SHA for CI monitoring.')
             self._ci_status = None
+            self._record_agent_summary(
+                'DevOps',
+                'ci',
+                'CI monitoring skipped because the current commit could not be determined.',
+                {
+                    'status': 'skipped',
+                    'reason': 'unknown_commit',
+                    'source_step': source_label,
+                },
+            )
             return None
 
         branch = self._get_current_branch()
@@ -1227,6 +1288,16 @@ class Douglas:
             except FileNotFoundError as exc:
                 print(f'Warning: GitHub CLI not available for CI monitoring: {exc}')
                 self._ci_status = None
+                self._record_agent_summary(
+                    'DevOps',
+                    'ci',
+                    'CI monitoring aborted because the GitHub CLI could not be executed.',
+                    {
+                        'status': 'skipped',
+                        'reason': 'missing_cli',
+                        'source_step': source_label,
+                    },
+                )
                 return None
 
             if result.returncode != 0:
@@ -1268,17 +1339,34 @@ class Douglas:
                         'commit': commit_sha,
                     },
                 )
+                self._record_agent_summary(
+                    'DevOps',
+                    'ci',
+                    'CI checks succeeded for the latest release.',
+                    {
+                        'status': 'success',
+                        'run_id': run_id,
+                        'url': run_url,
+                        'commit': commit_sha,
+                        'source_step': source_label,
+                    },
+                )
                 return True
 
             summary = f'CI run {run_id} failed with conclusion {conclusion}.'
             log_path = self._download_ci_logs(run_id)
             excerpt = None
+            log_display = None
             if log_path and log_path.exists():
                 try:
                     content = log_path.read_text(encoding='utf-8')
                     excerpt = content[-self.MAX_LOG_EXCERPT_LENGTH:]
                 except OSError as exc:
                     excerpt = f'Unable to read CI log file: {exc}'
+                try:
+                    log_display = str(log_path.relative_to(self.project_root))
+                except ValueError:
+                    log_display = str(log_path)
 
             self._ci_status = 'failure'
             self._write_history_event(
@@ -1290,11 +1378,57 @@ class Douglas:
                     'conclusion': conclusion,
                 },
             )
-            self._handle_step_failure('ci', summary, excerpt)
+            bug_id = self._handle_step_failure('ci', summary, excerpt)
+            handoff_context = {
+                'run_id': run_id,
+                'run_url': run_url,
+                'conclusion': conclusion,
+                'commit': commit_sha,
+                'source_step': source_label,
+                'bug_id': bug_id,
+            }
+            if log_display:
+                handoff_context['log_path'] = log_display
+            handoff_id = self._raise_agent_handoff(
+                'DevOps',
+                'Developer',
+                'Investigate failing CI run',
+                handoff_context,
+                blocking=True,
+            )
+            summary_details = {
+                'status': 'failed',
+                'run_id': run_id,
+                'url': run_url,
+                'conclusion': conclusion,
+                'commit': commit_sha,
+                'source_step': source_label,
+            }
+            if bug_id:
+                summary_details['bug_id'] = bug_id
+            if log_display:
+                summary_details['log_path'] = log_display
+            self._record_agent_summary(
+                'DevOps',
+                'ci',
+                'CI checks failed for the latest release and need attention.',
+                summary_details,
+                handoff_ids=[handoff_id] if handoff_id else None,
+            )
             return False
 
         print('CI run not found or did not complete within the monitoring window.')
         self._ci_status = None
+        self._record_agent_summary(
+            'DevOps',
+            'ci',
+            'CI monitoring timed out before any run completed.',
+            {
+                'status': 'pending',
+                'reason': 'not_found',
+                'source_step': source_label,
+            },
+        )
         return None
 
     def _download_ci_logs(self, run_id: Optional[int]) -> Optional[Path]:

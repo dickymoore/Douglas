@@ -75,7 +75,7 @@ def test_per_feature_policy_pushes_and_creates_pr(monkeypatch, tmp_path):
 
     monkeypatch.setattr(Douglas, '_run_git_push', fake_push)
     monkeypatch.setattr(Douglas, '_open_pull_request', fake_pr)
-    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self: None)
+    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self, *args, **kwargs: None)
 
     douglas = Douglas(config_path)
     readme = tmp_path / 'README.md'
@@ -104,7 +104,7 @@ def test_per_sprint_policy_defers_push_until_final_day(monkeypatch, tmp_path):
         return True, 'pushed'
 
     monkeypatch.setattr(Douglas, '_run_git_push', fake_push)
-    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self: None)
+    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self, *args, **kwargs: None)
 
     douglas = Douglas(config_path)
     readme = tmp_path / 'README.md'

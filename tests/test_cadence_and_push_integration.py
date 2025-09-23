@@ -159,7 +159,7 @@ def test_cadence_and_push_matrix(
 
     monkeypatch.setattr(Douglas, "_run_git_push", fake_push)
     monkeypatch.setattr(Douglas, "_open_pull_request", fake_pr)
-    monkeypatch.setattr(Douglas, "_monitor_ci", lambda self: None)
+    monkeypatch.setattr(Douglas, "_monitor_ci", lambda self, *args, **kwargs: None)
     monkeypatch.setattr(Douglas, "_run_local_checks", lambda self: (True, "ok"))
     monkeypatch.setattr(demo_pipeline, "write_demo_pack", fake_demo)
 
