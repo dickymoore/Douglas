@@ -144,3 +144,65 @@ def test_per_sprint_policy_defers_push_until_final_day(monkeypatch, tmp_path):
     readme.write_text("Initial content\nDay 1\nDay 2\n", encoding="utf-8")
     douglas.run_loop()
     assert push_calls == ["push"]
+
+
+def test_per_feature_complete_policy_pushes_after_feature_completion(
+    monkeypatch, tmp_path
+):
+    steps = [
+        {"name": "commit"},
+        {"name": "push"},
+    ]
+    config_path = _init_repo(
+        tmp_path, push_policy="per_feature_complete", sprint_length=None, steps=steps
+    )
+
+    provider = SequencedProvider(["feat: deliver greeting"])
+    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: provider)
+
+    push_calls: list[str] = []
+
+    def fake_push(self):
+        push_calls.append("push")
+        return True, "pushed"
+
+    monkeypatch.setattr(Douglas, "_run_git_push", fake_push)
+    monkeypatch.setattr(Douglas, "_monitor_ci", lambda self, *args, **kwargs: None)
+
+    douglas = Douglas(config_path)
+    readme = tmp_path / "README.md"
+    readme.write_text("Initial content\nUpdate\n", encoding="utf-8")
+    douglas.run_loop()
+
+    assert push_calls == ["push"]
+
+
+def test_per_feature_complete_policy_skips_non_feature_commits(
+    monkeypatch, tmp_path
+):
+    steps = [
+        {"name": "commit"},
+        {"name": "push"},
+    ]
+    config_path = _init_repo(
+        tmp_path, push_policy="per_feature_complete", sprint_length=None, steps=steps
+    )
+
+    provider = SequencedProvider(["chore: format code"])
+    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: provider)
+
+    push_calls: list[str] = []
+
+    def fake_push(self):
+        push_calls.append("push")
+        return True, "pushed"
+
+    monkeypatch.setattr(Douglas, "_run_git_push", fake_push)
+    monkeypatch.setattr(Douglas, "_monitor_ci", lambda self, *args, **kwargs: None)
+
+    douglas = Douglas(config_path)
+    readme = tmp_path / "README.md"
+    readme.write_text("Initial content\nAnother change\n", encoding="utf-8")
+    douglas.run_loop()
+
+    assert push_calls == []

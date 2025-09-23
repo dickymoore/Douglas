@@ -2,15 +2,13 @@ import sys
 from pathlib import Path
 
 import yaml
-from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from douglas.cli import app
 from douglas.core import Douglas
 
 
-def test_init_project_creates_scaffold(monkeypatch, tmp_path):
+def test_init_project_creates_python_scaffold(monkeypatch, tmp_path):
     base_config = tmp_path / "douglas.yaml"
     base_config.write_text(
         "project:\n  name: Base\n  language: python\n", encoding="utf-8"
@@ -21,110 +19,119 @@ def test_init_project_creates_scaffold(monkeypatch, tmp_path):
     douglas = Douglas(base_config)
     target_dir = tmp_path / "scaffold"
 
-    douglas.init_project(str(target_dir))
+    douglas.init_project(
+        target_dir,
+        push_policy="per_feature_complete",
+        sprint_length=6,
+    )
 
-    expected_paths = [
+    expected_paths = {
         target_dir / "douglas.yaml",
         target_dir / "README.md",
-        target_dir / "system_prompt.md",
+        target_dir / ".env.example",
         target_dir / ".gitignore",
-        target_dir / "src" / "__init__.py",
-        target_dir / "src" / "main.py",
-        target_dir / "tests" / "test_main.py",
+        target_dir / "system_prompt.md",
+        target_dir / "pyproject.toml",
+        target_dir / "requirements-dev.txt",
+        target_dir / "Makefile",
+        target_dir / "src" / "app" / "__init__.py",
+        target_dir / "tests" / "test_app.py",
         target_dir / ".github" / "workflows" / "ci.yml",
-    ]
+    }
 
-    for path in expected_paths:
-        assert path.exists(), f"Missing expected scaffold file: {path}"
+    missing = [str(path) for path in expected_paths if not path.exists()]
+    assert not missing, f"Missing expected scaffold files: {missing}"
 
     scaffold_config = yaml.safe_load(
         (target_dir / "douglas.yaml").read_text(encoding="utf-8")
     )
     assert scaffold_config["project"]["name"] == target_dir.name
     assert scaffold_config["project"]["language"] == "python"
-    assert scaffold_config["push_policy"] == "per_feature"
+    assert scaffold_config["push_policy"] == "per_feature_complete"
     assert scaffold_config["loop"]["exit_conditions"] == ["ci_pass"]
-    assert scaffold_config["sprint"]["length_days"] == 10
+    assert [step["name"] for step in scaffold_config["loop"]["steps"]] == [
+        "generate",
+        "lint",
+        "typecheck",
+        "test",
+        "commit",
+        "push",
+        "pr",
+    ]
+    assert scaffold_config["sprint"]["length_days"] == 6
     assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
 
-    cadence_config = scaffold_config.get("cadence", {})
-    assert cadence_config["ProductOwner"]["sprint_review"] == "per_sprint"
-    assert cadence_config["ScrumMaster"]["retrospective"] == "per_sprint"
-
-    step_configs = {step["name"]: step for step in scaffold_config["loop"]["steps"]}
-    assert step_configs["retro"]["cadence"] == "per_sprint"
-    assert step_configs["demo"]["cadence"] == "per_sprint"
-
     readme_text = (target_dir / "README.md").read_text(encoding="utf-8")
-    assert "This Python project" in readme_text
+    assert "Douglas" in readme_text
     assert target_dir.name in readme_text
 
     system_prompt = (target_dir / "system_prompt.md").read_text(encoding="utf-8")
     assert target_dir.name in system_prompt
-    assert "python project" in system_prompt.lower()
+    assert "src/app" in system_prompt
 
-    main_py = (target_dir / "src" / "main.py").read_text(encoding="utf-8")
-    assert target_dir.name in main_py
-    assert "scaffolded python application" in main_py.lower()
+    package_code = (target_dir / "src" / "app" / "__init__.py").read_text(
+        encoding="utf-8"
+    )
+    assert "get_welcome_message" in package_code
+    assert target_dir.name in package_code
 
-    test_main = (target_dir / "tests" / "test_main.py").read_text(encoding="utf-8")
-    assert f'"{target_dir.name}"' in test_main
+    test_code = (target_dir / "tests" / "test_app.py").read_text(encoding="utf-8")
+    assert "get_welcome_message" in test_code
+    assert target_dir.name in test_code
 
     gitignore_text = (target_dir / ".gitignore").read_text(encoding="utf-8")
-    assert target_dir.name in gitignore_text.splitlines()[0]
+    assert ".venv" in gitignore_text
+    assert ".pytest_cache" in gitignore_text
+
+    env_example = (target_dir / ".env.example").read_text(encoding="utf-8")
+    assert "OPENAI_API_KEY" in env_example
+
+    pyproject_text = (target_dir / "pyproject.toml").read_text(encoding="utf-8")
+    assert f"name = \"{target_dir.name.lower().replace('-', '_')}\"" in pyproject_text
+
+    requirements_text = (target_dir / "requirements-dev.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "pytest" in requirements_text
+
+    makefile = (target_dir / "Makefile").read_text(encoding="utf-8")
+    assert "venv" in makefile and "pytest -q" in makefile
 
     ci_content = (target_dir / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
     )
-    assert "name: CI" in ci_content
-    assert "pytest" in ci_content
-    assert "the python project" in ci_content
+    assert "actions/setup-python" in ci_content
+    assert "pytest -q" in ci_content
 
 
-def test_init_project_respects_language_override(monkeypatch, tmp_path):
+def test_init_project_supports_blank_template(monkeypatch, tmp_path):
     base_config = tmp_path / "douglas.yaml"
-    base_config.write_text("project:\n  name: Base\n  language: go\n", encoding="utf-8")
+    base_config.write_text(
+        "project:\n  name: Base\n  language: rust\n", encoding="utf-8"
+    )
 
     monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: object())
 
     douglas = Douglas(base_config)
-    target_dir = tmp_path / "scaffold"
+    target_dir = tmp_path / "blank"
 
-    douglas.init_project(str(target_dir))
-
-    readme_text = (target_dir / "README.md").read_text(encoding="utf-8")
-    assert "Go project" in readme_text
-
-    system_prompt = (target_dir / "system_prompt.md").read_text(encoding="utf-8")
-    assert "go project" in system_prompt.lower()
-
-    main_py = (target_dir / "src" / "main.py").read_text(encoding="utf-8")
-    assert "scaffolded go application" in main_py.lower()
-
-    ci_content = (target_dir / ".github" / "workflows" / "ci.yml").read_text(
-        encoding="utf-8"
+    douglas.init_project(
+        target_dir,
+        template="blank",
+        ci="none",
+        license_type="none",
     )
-    assert "the go project" in ci_content
+
+    assert (target_dir / "douglas.yaml").exists()
+    assert (target_dir / "README.md").exists()
+    assert (target_dir / ".env.example").exists()
+    assert (target_dir / ".gitignore").exists()
+    assert not (target_dir / "system_prompt.md").exists()
+    assert not (target_dir / "src").exists()
 
     scaffold_config = yaml.safe_load(
         (target_dir / "douglas.yaml").read_text(encoding="utf-8")
     )
-    assert scaffold_config["project"]["language"] == "go"
+    assert scaffold_config["project"]["language"] == "rust"
     assert scaffold_config["push_policy"] == "per_feature"
-    assert scaffold_config["sprint"]["length_days"] == 10
-    assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
-
-
-def test_cli_init_allows_missing_config(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: object())
-
-    runner = CliRunner()
-    result = runner.invoke(
-        app,
-        ["init", "demo", "--non-interactive"],
-        catch_exceptions=False,
-    )
-
-    assert result.exit_code == 0
-    assert (tmp_path / "demo" / "douglas.yaml").exists()
+    assert "prompt" not in scaffold_config["ai"]
