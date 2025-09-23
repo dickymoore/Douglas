@@ -22,6 +22,7 @@ cadence:
     retrospective: per_sprint
   DevOps:
     release: per_feature
+    security_checks: per_feature
   Designer:
     design_review: per_sprint
     ux_review: per_feature
@@ -41,6 +42,9 @@ loop:
     - name: typecheck
       role: Developer
       activity: quality_checks
+    - name: security
+      role: DevOps
+      activity: security_checks
     - name: test
       role: Tester
       activity: test_cases

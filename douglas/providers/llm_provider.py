@@ -7,10 +7,16 @@ class LLMProvider(ABC):
         pass
 
     @staticmethod
-    def create_provider(name: str):
-        if name.lower() == "openai":
+    def create_provider(name: str, **options):
+        normalized = (name or "").lower()
+        if normalized == "openai":
             from douglas.providers.openai_provider import OpenAIProvider
 
-            return OpenAIProvider()
-        else:
-            raise ValueError(f"Unsupported LLM provider: {name}")
+            model = options.get("model")
+            api_key = options.get("api_key")
+            base_url = options.get("base_url") or options.get("api_base")
+            return OpenAIProvider(
+                model_name=model, api_key=api_key, base_url=base_url
+            )
+
+        raise ValueError(f"Unsupported LLM provider: {name}")

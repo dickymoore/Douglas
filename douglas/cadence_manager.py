@@ -98,6 +98,7 @@ class CadenceManager:
         "generate": ("Developer", "development"),
         "lint": ("Developer", "quality_checks"),
         "typecheck": ("Developer", "quality_checks"),
+        "security": ("DevOps", "security_checks"),
         "test": ("Tester", "test_cases"),
         "review": ("Developer", "code_review"),
         "feature_refinement": ("ProductOwner", "backlog_refinement"),

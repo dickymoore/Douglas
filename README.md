@@ -152,6 +152,7 @@ Each pipeline module focuses on a single concern:
 - `pipelines.test.run_tests()` launches `pytest -q` and returns non-zero status on failure.[`douglas/pipelines/test.py`](douglas/pipelines/test.py)
 - `pipelines.demo.write_demo_pack()` renders Markdown demo decks using Jinja-style templates, enumerating commits, role highlights, how-to-run instructions, limitations, and next steps.[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
 - `pipelines.retro.run_retro()` builds a JSON prompt for the LLM from sprint journals, parses action items/wins/risks, writes per-role instruction sheets, and appends backlog entries.[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
+  - `pipelines.security.run_security()` runs available security scanners (Bandit by default, Semgrep when present), surfaces actionable diagnostics, and fails fast when no tooling can run.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 - `pipelines.security.run_security()` runs Bandit when available (skipping it gracefully if the tool is missing) and accepts custom commands so teams can compose broader security suites.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 - `pipelines.security.run_security()` normalises tool aliases or explicit commands, runs Bandit/Semgrep/custom checks with captured output, and raises descriptive errors when findings surface.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 
@@ -160,7 +161,7 @@ Each pipeline module focuses on a single concern:
 The provider abstraction keeps Douglas model-agnostic:
 
 - `LLMProvider` is a simple interface with a `generate_code(prompt)` method and a `create_provider()` factory.[`douglas/providers/llm_provider.py`](douglas/providers/llm_provider.py)
-- `OpenAIProvider` initialises the OpenAI SDK, honours `OPENAI_MODEL`/`OPENAI_BASE_URL`, and returns real model output when `OPENAI_API_KEY` is set (falling back to a local stub if credentials or the SDK are missing).[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
+  - `OpenAIProvider` initialises the OpenAI SDK, honours `ai.model` overrides (or `OPENAI_MODEL`) plus optional `ai.base_url`/`ai.api_key` settings, and returns real model output when credentials and the SDK are available—falling back to a local stub otherwise.[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
 
 ### Templates, bootstrapping & examples
 
@@ -239,6 +240,8 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
    - Export `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` or `OPENAI_BASE_URL`) to enable the bundled OpenAI integration.
    - For offline experimentation you can monkeypatch `Douglas.create_llm_provider` to return a simple object with a `generate_code(prompt)` method that prints the prompt and returns deterministic output (the test suite demonstrates this pattern). The built-in provider will also fall back to a local stub whenever credentials or the SDK are unavailable.
 
+5. **Run the development loop from the CLI**
+   - Validate configuration and environment prerequisites:
 5. **Run the development loop**
    - Use the CLI entry point exposed by Typer:
      ```bash
@@ -247,16 +250,13 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
    - Prefer `douglas check` first to confirm prerequisites, and `douglas init <name>` when bootstrapping a new repo from templates.
    - Programmatic access remains available for automation workflows:
      ```bash
-     python - <<'PY'
-     from pathlib import Path
-     from douglas.core import Douglas
-
-     config_path = Path('douglas.yaml')
-     doug = Douglas(config_path)
-     doug.run_loop()
-     PY
+     douglas check --config douglas.yaml
      ```
-   - Douglas prints cadence decisions, executed step names, and exit-condition results to stdout while writing artifacts to `ai-inbox/`.
+   - Kick off the orchestrator, pointing at your project configuration:
+     ```bash
+     douglas run --config douglas.yaml
+     ```
+   - The CLI is a thin Typer wrapper over the `Douglas` orchestrator; it prints cadence decisions, executed step names, and exit-condition results to stdout while writing artifacts to `ai-inbox/`.
 
 6. **Interpret the outputs**
    - Check `ai-inbox/sprints/sprint-1/roles/` for per-role summaries and handoffs.
@@ -274,10 +274,13 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
    - Monitor the `ai-inbox/ci/` directory for downloaded GitHub Actions logs when CI monitoring is enabled.
 
 9. **Bootstrap new repositories**
-   - From an installed environment you can call `Douglas(...).init_project('my-new-app')` to scaffold a starter repo with templates, tests, and CI workflows. Move into the generated folder and begin iterating with the loop.
+   - From an installed environment you can call `Douglas(...).init_project('my-new-app')` or run `douglas init my-new-app` to scaffold a starter repo with templates, tests, and CI workflows. Move into the generated folder and begin iterating with the loop.
 
 ## Limitations and open gaps
 
+- `OpenAIProvider` integrates with the OpenAI SDK (with graceful fallbacks); pluggable support for additional providers remains future work.
+- The security pipeline expects at least one local security tool (Bandit by default, Semgrep when available). Install the tooling or configure custom commands to keep the guardrails effective.
+- Additional console subcommands beyond `run`, `check`, and `init` (for operations such as `doctor`) are still exposed via the Python API only.
 - The CLI currently exposes coarse-grained orchestration commands (`run`, `check`, `init`); advanced scenarios such as running a single step or dry-run modes remain future enhancements.
 - `OpenAIProvider` integrates with the OpenAI SDK (with graceful fallbacks), but pluggable support for additional LLM vendors is still on the roadmap.
 - The security pipeline defaults to Bandit and relies on locally installed tooling; expanding first-class integrations for Semgrep, pip-audit, and custom policies is planned.
