@@ -1,6 +1,6 @@
 # Douglas
 
-Douglas is a developer-lifecycle companion that automates an AI-assisted build, test, review, and release loop for software teams. It reads a configuration file, orchestrates lint/type/test/demo/retro pipelines, records outcomes for each agile role, and coordinates release policies and CI monitoring.
+Douglas is a developer-lifecycle companion that automates an AI-assisted build, test, review, and release loop for software teams. It reads a configuration file, orchestrates lint/type/test/security/demo/retro pipelines, records outcomes for each agile role, and coordinates release policies and CI monitoring.
 
 > **Status:** Douglas is not yet published on PyPI. Install from source as shown below. The bundled OpenAI provider talks to the OpenAI API when credentials are configured and degrades gracefully to a local stub otherwise.
 
@@ -92,6 +92,7 @@ Douglas is entirely driven by a `douglas.yaml` file located at your project root
 - `push_policy`: governs when push/PR steps fire (`per_feature`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
 - `sprint`: high-level sprint length used to calculate per-sprint cadences.[`douglas/core.py`](douglas/core.py)
 - `demo` & `retro`: configure sprint demo/retro pipelines (output formats, which sections to generate, backlog destinations). [`douglas/pipelines/demo.py`](douglas/pipelines/demo.py) [`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
+- `security`: optionally list tool aliases (e.g., `bandit`, `semgrep`) or explicit commands under the `loop` step configuration to tailor which scanners run and which paths they inspect.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 - `history`: limits for preserved CI log excerpts and other retention knobs.[`douglas/core.py`](douglas/core.py)
 - `paths`: customize locations for source, tests, AI inboxes, sprint folders, run-state files, and question portals.[`douglas/core.py`](douglas/core.py)
 - `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features. [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
@@ -111,6 +112,7 @@ Core capabilities:
   - `generate` builds a rich prompt (system message, project metadata, recent commits, git status, TODOs) and asks the LLM to produce diffs or code blocks. It applies results via `_apply_diff`/`_apply_code_blocks` and stages modified files.[`douglas/core.py`](douglas/core.py)
   - `review` requests LLM feedback on pending diffs and persists that feedback to `douglas_review.md` for future reference.[`douglas/core.py`](douglas/core.py)
   - `lint`, `typecheck`, `test` delegate to pipeline modules which run `ruff`/`black`/`isort`, `mypy`, and `pytest` respectively, record agent summaries, and raise blocking handoffs when failures occur.[`douglas/core.py`](douglas/core.py)[`douglas/pipelines/lint.py`](douglas/pipelines/lint.py)[`douglas/pipelines/typecheck.py`](douglas/pipelines/typecheck.py)[`douglas/pipelines/test.py`](douglas/pipelines/test.py)
+  - `security` executes `run_security()` to launch Bandit, Semgrep, or custom security commands, truncates tool logs for history events, and records outcomes for the Security role inbox.[`douglas/core.py`](douglas/core.py)[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
   - `retro` and `demo` orchestrate the sprint retrospective and demo pack generation, writing outputs beneath `ai-inbox/sprints/<sprint>/` and `demos/<sprint>/` while logging events.[`douglas/core.py`](douglas/core.py)[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
   - `commit` autogenerates a Conventional Commit message via the LLM (with `_generate_commit_message()`), stages outstanding changes, and records the resulting commit.[`douglas/core.py`](douglas/core.py)
   - `push` performs local guard checks (configurable commands such as `black --check`), attempts `git push` with automatic fast-forward pulls, records sprint cadence consumption, and may trigger CI monitoring.[`douglas/core.py`](douglas/core.py)
@@ -151,6 +153,7 @@ Each pipeline module focuses on a single concern:
 - `pipelines.demo.write_demo_pack()` renders Markdown demo decks using Jinja-style templates, enumerating commits, role highlights, how-to-run instructions, limitations, and next steps.[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
 - `pipelines.retro.run_retro()` builds a JSON prompt for the LLM from sprint journals, parses action items/wins/risks, writes per-role instruction sheets, and appends backlog entries.[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
 - `pipelines.security.run_security()` runs Bandit when available (skipping it gracefully if the tool is missing) and accepts custom commands so teams can compose broader security suites.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
+- `pipelines.security.run_security()` normalises tool aliases or explicit commands, runs Bandit/Semgrep/custom checks with captured output, and raises descriptive errors when findings surface.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 
 ### Providers
 
