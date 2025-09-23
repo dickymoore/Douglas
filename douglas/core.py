@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 
@@ -1338,7 +1338,7 @@ class Douglas:
 
     def _should_ignore_semgrep_failure(
         self,
-        command: Sequence[str],
+        command: List[str],
         result: subprocess.CompletedProcess[str],
     ) -> bool:
         if not command or command[0] != "semgrep":
@@ -1363,11 +1363,16 @@ class Douglas:
             "max retries exceeded",
             "check your internet connection",
             "offline",
-            "tls",
             "ssl error",
             "certificate verify failed",
         ]
-        return any(marker in combined_output for marker in network_markers)
+        if any(marker in combined_output for marker in network_markers):
+            return True
+
+        tls_error_pattern = re.compile(
+            r"\btls\b[^\n]*(error|failed|failure|handshake|protocol)"
+        )
+        return bool(tls_error_pattern.search(combined_output))
 
     def _format_command_output(
         self,
