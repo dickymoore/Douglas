@@ -2,6 +2,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
 
 import yaml
 
@@ -13,7 +14,7 @@ from douglas.pipelines import retro
 class StubLLM:
     def __init__(self, response: str):
         self.response = response
-        self.prompt = None
+        self.prompt: Optional[str] = None
 
     def generate_code(self, prompt: str) -> str:
         self.prompt = prompt
@@ -91,7 +92,10 @@ def test_run_retro_creates_outputs(tmp_path):
     backlog_entries = yaml.safe_load(backlog_path.read_text(encoding="utf-8"))
     assert backlog_entries[0]["id"] == "PREF-3-1"
     assert backlog_entries[0]["originated_from"] == ["sprint-3", "retro"]
-    assert "Dashboard summarizes alert categories" in backlog_entries[0]["acceptance_hints"][0]
+    assert (
+        "Dashboard summarizes alert categories"
+        in backlog_entries[0]["acceptance_hints"][0]
+    )
 
     assert result.sprint_folder == "sprint-3"
     assert result.instructions["developer"].resolve() == developer_instructions

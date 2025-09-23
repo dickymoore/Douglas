@@ -22,10 +22,14 @@ class RoleDocuments:
         return _normalize_role_key(self.role)
 
 
-def collect_role_documents(project_root: Path, sprint_folder: str) -> List[RoleDocuments]:
+def collect_role_documents(
+    project_root: Path, sprint_folder: str
+) -> List[RoleDocuments]:
     """Load summaries and handoffs for each role in the sprint."""
 
-    roles_root = Path(project_root).resolve() / "ai-inbox" / "sprints" / sprint_folder / "roles"
+    roles_root = (
+        Path(project_root).resolve() / "ai-inbox" / "sprints" / sprint_folder / "roles"
+    )
     if not roles_root.is_dir():
         return []
 

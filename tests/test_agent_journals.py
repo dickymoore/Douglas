@@ -34,7 +34,9 @@ class StubProvider:
         return self.response
 
 
-def test_generate_step_appends_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_generate_step_appends_summary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config_path = _write_config(tmp_path)
     provider = StubProvider("diff --git a/foo b/foo\n")
     monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: provider)
@@ -46,14 +48,24 @@ def test_generate_step_appends_summary(monkeypatch: pytest.MonkeyPatch, tmp_path
 
     douglas._generate_impl()
 
-    summary_path = tmp_path / "ai-inbox" / "sprints" / "sprint-1" / "roles" / "developer" / "summary.md"
+    summary_path = (
+        tmp_path
+        / "ai-inbox"
+        / "sprints"
+        / "sprint-1"
+        / "roles"
+        / "developer"
+        / "summary.md"
+    )
     assert summary_path.exists()
     summary_text = summary_path.read_text(encoding="utf-8")
     assert "Applied generated updates to 1 file" in summary_text
     assert "src/app.py" in summary_text
 
 
-def test_failed_tests_record_handoff_and_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_failed_tests_record_handoff_and_summary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     config_path = _write_config(tmp_path)
     monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: StubProvider())
 
@@ -69,8 +81,24 @@ def test_failed_tests_record_handoff_and_summary(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(SystemExit):
         douglas._execute_step("test", {"name": "test"}, decision)
 
-    summary_path = tmp_path / "ai-inbox" / "sprints" / "sprint-1" / "roles" / "tester" / "summary.md"
-    handoff_path = tmp_path / "ai-inbox" / "sprints" / "sprint-1" / "roles" / "tester" / "handoffs.md"
+    summary_path = (
+        tmp_path
+        / "ai-inbox"
+        / "sprints"
+        / "sprint-1"
+        / "roles"
+        / "tester"
+        / "summary.md"
+    )
+    handoff_path = (
+        tmp_path
+        / "ai-inbox"
+        / "sprints"
+        / "sprint-1"
+        / "roles"
+        / "tester"
+        / "handoffs.md"
+    )
 
     assert summary_path.exists()
     assert handoff_path.exists()

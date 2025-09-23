@@ -1,3 +1,3 @@
 """Top-level package for Douglas."""
 
-__all__ = []
+__all__: list[str] = []

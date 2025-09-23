@@ -79,7 +79,9 @@ def _init_repo(
         config_data["cadence"] = cadence_config
 
     config_path = tmp_path / "douglas.yaml"
-    config_path.write_text(yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8")
+    config_path.write_text(
+        yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8"
+    )
 
     readme = tmp_path / "README.md"
     readme.write_text("Initial content\n", encoding="utf-8")
@@ -112,9 +114,30 @@ def _init_repo(
         "expected_demo_counts",
     ),
     [
-        (None, "per_sprint", None, ["feat: add report", "feat: finalize report"], [0, 1], [0, 1]),
-        ("daily", "per_sprint", None, ["feat: add report", "feat: finalize report"], [0, 1], [1, 2]),
-        (None, "per_feature", None, ["feat: add report", "feat: finalize report"], [1, 2], [0, 1]),
+        (
+            None,
+            "per_sprint",
+            None,
+            ["feat: add report", "feat: finalize report"],
+            [0, 1],
+            [0, 1],
+        ),
+        (
+            "daily",
+            "per_sprint",
+            None,
+            ["feat: add report", "feat: finalize report"],
+            [0, 1],
+            [1, 2],
+        ),
+        (
+            None,
+            "per_feature",
+            None,
+            ["feat: add report", "feat: finalize report"],
+            [1, 2],
+            [0, 1],
+        ),
         (
             "daily",
             "per_feature",
@@ -123,7 +146,14 @@ def _init_repo(
             [1, 2],
             [1, 2],
         ),
-        (None, "per_bug", None, ["fix: resolve crash", "fix: harden edge case"], [1, 2], [0, 1]),
+        (
+            None,
+            "per_bug",
+            None,
+            ["fix: resolve crash", "fix: harden edge case"],
+            [1, 2],
+            [0, 1],
+        ),
         (
             "daily",
             "per_bug",
@@ -144,8 +174,7 @@ def _init_repo(
             [1, 2],
         ),
     ],
-    ids=
-    [
+    ids=[
         "per_sprint_default",
         "per_sprint_daily_demo",
         "per_feature_default_demo",
