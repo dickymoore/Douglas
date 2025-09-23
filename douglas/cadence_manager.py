@@ -67,10 +67,20 @@ class CadenceManager:
         "refine": ("ProductOwner", "backlog_refinement"),
         "demo": ("ProductOwner", "sprint_review"),
         "retrospective": ("ScrumMaster", "retrospective"),
+        "retro": ("ScrumMaster", "retrospective"),
+        "handoff": ("Developer", "handoff"),
+        "summary": ("Developer", "development"),
+        "agent_summary": ("Developer", "development"),
         "commit": ("Developer", "development"),
         "push": ("DevOps", "release"),
         "pr": ("Developer", "code_review"),
         "deploy": ("DevOps", "release"),
+    }
+
+    _DEFAULT_STEP_CADENCE: Dict[str, str] = {
+        "demo": "per_sprint",
+        "retrospective": "per_sprint",
+        "retro": "per_sprint",
     }
 
     def __init__(
@@ -99,6 +109,11 @@ class CadenceManager:
             cadence_value = self._lookup_role_cadence(role, activity)
             if cadence_value is not None:
                 cadence_source = "role"
+
+        if cadence_value is None:
+            default_cadence = self._default_cadence_for_step(step_name)
+            if default_cadence is not None:
+                cadence_value = default_cadence
 
         context = self._build_context(step_name, role, activity, cadence_value, cadence_source)
         self.last_context = context
@@ -191,6 +206,28 @@ class CadenceManager:
         if value is None:
             return ""
         return str(value).strip().lower()
+
+    def _default_cadence_for_step(self, step_name: str) -> Optional[str]:
+        normalized = self._normalize_key(step_name)
+        if not normalized:
+            return None
+
+        if normalized in self._DEFAULT_STEP_CADENCE:
+            return self._DEFAULT_STEP_CADENCE[normalized]
+
+        if "demo" in normalized:
+            return "per_sprint"
+
+        if "retro" in normalized:
+            return "per_sprint"
+
+        if "handoff" in normalized or "handover" in normalized:
+            return "daily"
+
+        if "summary" in normalized and "test" not in normalized:
+            return "daily"
+
+        return None
 
 
 __all__ = ["CadenceContext", "CadenceManager", "should_run_step"]

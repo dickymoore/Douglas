@@ -39,6 +39,12 @@ loop:
     - name: review
       role: Developer
       activity: code_review
+    - name: retro
+      role: ScrumMaster
+      activity: retrospective
+    - name: demo
+      role: ProductOwner
+      activity: sprint_review
     - name: commit
       role: Developer
       activity: development
@@ -48,3 +54,44 @@ loop:
     - name: pr
       role: Developer
       activity: code_review
+sprint:
+  length_days: 10
+demo:
+  format: "md"
+  include:
+    - implemented_features
+    - how_to_run
+    - test_results
+    - limitations
+    - next_steps
+retro:
+  outputs:
+    - role_instructions
+    - pre_feature_backlog
+  backlog_file: "ai-inbox/backlog/pre-features.yaml"
+paths:
+  inbox_dir: "ai-inbox"
+  app_src: "src"
+  tests: "tests"
+  demos_dir: "demos"
+  sprint_prefix: "sprint-"
+  questions_dir: "user-portal/questions"
+  questions_archive_dir: "user-portal/questions-archive"
+  user_portal_dir: "user-portal"
+  run_state_file: "user-portal/run-state.txt"
+agents:
+  roles:
+    - "developer"
+    - "tester"
+    - "product_owner"
+    - "scrum_master"
+    - "designer"
+    - "ba"
+    - "devops"
+run_state:
+  allowed:
+    - "CONTINUE"
+    - "SOFT_STOP"
+    - "HARD_STOP"
+qna:
+  filename_pattern: "sprint-{sprint}-{role}-{id}.md"

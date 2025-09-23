@@ -63,17 +63,21 @@ def test_push_step_creates_bug_on_local_check_failure(monkeypatch, tmp_path):
     douglas.sprint_manager.mark_feature_completed('demo-feature')
     douglas.sprint_manager.commits_since_last_push = 1
 
-    local_logs = 'simulated local check failure'
-
-    def fake_local_checks(self):
-        return False, local_logs
-
     def unexpected_push(self):
         raise AssertionError('push should not run when local checks fail')
 
-    monkeypatch.setattr(Douglas, '_run_local_checks', fake_local_checks)
+    monkeypatch.setattr(Douglas, '_discover_local_check_commands', lambda self: [['fake-tool']])
     monkeypatch.setattr(Douglas, '_run_git_push', unexpected_push)
-    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self: None)
+    monkeypatch.setattr(Douglas, '_monitor_ci', lambda self, branch, timeout=60: None)
+
+    original_run = subprocess.run
+
+    def fake_run(command, *args, **kwargs):
+        if command == ['fake-tool']:
+            raise FileNotFoundError('simulated local check failure')
+        return original_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, 'run', fake_run)
 
     douglas.run_loop()
 
@@ -82,9 +86,38 @@ def test_push_step_creates_bug_on_local_check_failure(monkeypatch, tmp_path):
     bug_contents = bug_file.read_text(encoding='utf-8')
     assert 'simulated local check failure' in bug_contents
 
+    handoff_path = (
+        tmp_path
+        / 'ai-inbox'
+        / 'sprints'
+        / 'sprint-1'
+        / 'roles'
+        / 'devops'
+        / 'handoffs.md'
+    )
+    assert handoff_path.exists()
+    handoff_contents = handoff_path.read_text(encoding='utf-8')
+    assert 'Resolve local guard check failures' in handoff_contents
+    assert 'simulated local check failure' in handoff_contents
+
+    summary_path = (
+        tmp_path
+        / 'ai-inbox'
+        / 'sprints'
+        / 'sprint-1'
+        / 'roles'
+        / 'devops'
+        / 'summary.md'
+    )
+    assert summary_path.exists()
+    summary_contents = summary_path.read_text(encoding='utf-8')
+    assert 'Push blocked because required local checks failed.' in summary_contents
+    assert 'HANDOFF-' in summary_contents
+
     history_path = tmp_path / 'ai-inbox' / 'history.jsonl'
     assert history_path.exists()
     events = [json.loads(line)['event'] for line in history_path.read_text(encoding='utf-8').splitlines() if line.strip()]
+    assert 'local_checks_fail' in events
     assert 'bug_reported' in events
     assert 'step_failure' in events
 

@@ -60,6 +60,34 @@ def _force_gh_available(monkeypatch):
     monkeypatch.setattr(shutil, 'which', fake_which)
 
 
+def _read_summary(tmp_path: Path) -> str:
+    summary_path = (
+        tmp_path
+        / 'ai-inbox'
+        / 'sprints'
+        / 'sprint-1'
+        / 'roles'
+        / 'devops'
+        / 'summary.md'
+    )
+    assert summary_path.exists()
+    return summary_path.read_text(encoding='utf-8')
+
+
+def _read_handoffs(tmp_path: Path) -> str:
+    handoffs_path = (
+        tmp_path
+        / 'ai-inbox'
+        / 'sprints'
+        / 'sprint-1'
+        / 'roles'
+        / 'devops'
+        / 'handoffs.md'
+    )
+    assert handoffs_path.exists()
+    return handoffs_path.read_text(encoding='utf-8')
+
+
 def test_monitor_ci_records_failure(monkeypatch, tmp_path):
     config_path = _init_repo(tmp_path, steps=[{'name': 'commit'}], exit_conditions=[])
     monkeypatch.setattr(Douglas, 'create_llm_provider', lambda self: object())
@@ -88,7 +116,7 @@ def test_monitor_ci_records_failure(monkeypatch, tmp_path):
     _force_gh_available(monkeypatch)
     monkeypatch.setattr(subprocess, 'run', fake_run)
 
-    result = douglas._monitor_ci(max_attempts=1, poll_interval=0)
+    result = douglas._monitor_ci(source_step='pr', max_attempts=1, poll_interval=0)
     assert result is False
     assert douglas._ci_status == 'failure'
 
@@ -97,6 +125,18 @@ def test_monitor_ci_records_failure(monkeypatch, tmp_path):
     bug_contents = bug_file.read_text(encoding='utf-8')
     assert 'CI run 42 failed with conclusion failure.' in bug_contents
     assert 'CI failure log' in bug_contents
+
+    summary_text = _read_summary(tmp_path)
+    assert 'CI checks failed for the latest release' in summary_text
+    assert '**status**: failed' in summary_text
+    assert '**run id**: 42' in summary_text
+    assert '**bug id**: FEAT-BUG-' in summary_text
+    assert '**Handoffs Raised**' in summary_text
+
+    handoff_text = _read_handoffs(tmp_path)
+    assert 'Investigate failing CI run' in handoff_text
+    assert 'run_id: 42' in handoff_text
+    assert 'conclusion: failure' in handoff_text
 
     history_path = tmp_path / 'ai-inbox' / 'history.jsonl'
     history_entries = [json.loads(line) for line in history_path.read_text(encoding='utf-8').splitlines() if line.strip()]
@@ -133,7 +173,7 @@ def test_monitor_ci_records_success(monkeypatch, tmp_path):
     _force_gh_available(monkeypatch)
     monkeypatch.setattr(subprocess, 'run', fake_run)
 
-    result = douglas._monitor_ci(max_attempts=1, poll_interval=0)
+    result = douglas._monitor_ci(source_step='pr', max_attempts=1, poll_interval=0)
     assert result is True
     assert douglas._ci_status == 'success'
 
@@ -141,3 +181,8 @@ def test_monitor_ci_records_success(monkeypatch, tmp_path):
     history_entries = [json.loads(line) for line in history_path.read_text(encoding='utf-8').splitlines() if line.strip()]
     assert any(entry['event'] == 'ci_pass' for entry in history_entries)
     assert not (tmp_path / 'ai-inbox' / 'bugs.md').exists()
+
+    summary_text = _read_summary(tmp_path)
+    assert 'CI checks succeeded for the latest release.' in summary_text
+    assert '**status**: success' in summary_text
+    assert '**run id**: 101' in summary_text
