@@ -2899,13 +2899,13 @@ class Douglas:
         default_language = str(configured_language or "python")
         language = "python" if normalized_template == "python" else default_language
 
-        def _normalize_package(value: str) -> str:
+        def _normalize_module_name(value: str) -> str:
             slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
             if not slug:
                 slug = "app"
             return slug.replace("-", "_")
 
-        package_name = _normalize_package(scaffold_name)
+        package_name = _normalize_module_name(scaffold_name)
         module_name = "app"
 
         context = {
