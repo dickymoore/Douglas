@@ -153,7 +153,9 @@ def _spec_from_mapping(
         args = None
     elif isinstance(args_value, (str, bytes, bytearray)):
         args = [args_value]
-    elif isinstance(args_value, Iterable):
+    elif isinstance(args_value, Iterable) and not isinstance(
+        args_value, (str, bytes, bytearray)
+    ):
         args = args_value
     else:
         raise SecurityConfigurationError(
@@ -165,7 +167,9 @@ def _spec_from_mapping(
         paths = None
     elif isinstance(paths_value, (str, bytes, bytearray)):
         paths = [paths_value]
-    elif isinstance(paths_value, Iterable):
+    elif isinstance(paths_value, Iterable) and not isinstance(
+        paths_value, (str, bytes, bytearray)
+    ):
         paths = paths_value
     else:
         raise SecurityConfigurationError(
