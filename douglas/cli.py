@@ -26,11 +26,21 @@ def _config_option(help_text: str) -> Optional[Path]:
     )
 
 
-def _create_orchestrator(config_path: Optional[Path]) -> Douglas:
+def _create_orchestrator(
+    config_path: Optional[Path], *, allow_missing_config: bool = False
+) -> Douglas:
     """Instantiate the Douglas orchestrator using an optional config override."""
-    if config_path is None:
-        return Douglas()
-    return Douglas(config_path=config_path)
+    if config_path is not None:
+        return Douglas(config_path=config_path)
+
+    inferred_path = Path("douglas.yaml")
+    if inferred_path.exists():
+        return Douglas(config_path=inferred_path)
+
+    if allow_missing_config:
+        return Douglas(config_path=inferred_path, config={})
+
+    return Douglas(config_path=inferred_path)
 
 
 @app.command()
@@ -68,7 +78,7 @@ def init(
     ),
 ) -> None:
     """Scaffold a new repository using Douglas templates."""
-    orchestrator = _create_orchestrator(config)
+    orchestrator = _create_orchestrator(config, allow_missing_config=True)
     orchestrator.init_project(project_name, non_interactive=non_interactive)
 
 
