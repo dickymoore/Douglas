@@ -5,11 +5,12 @@ import shutil
 import subprocess
 import sys
 import time
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 
@@ -22,6 +23,7 @@ from douglas.pipelines import demo as demopipe
 from douglas.pipelines import lint
 from douglas.pipelines import security as securitypipe
 from douglas.pipelines import retro as retropipe
+from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
 from douglas.pipelines import typecheck
 from douglas.providers.llm_provider import LLMProvider
@@ -51,9 +53,35 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
-    def __init__(self, config_path="douglas.yaml"):
+<<<<<<< codex/comment-on-init-command-behavior-653dnq
+    def __init__(self, config_path="douglas.yaml", config_data: Optional[Dict[str, Any]] = None):
+        if config_path is None:
+            config_path = "douglas.yaml"
         self.config_path = Path(config_path)
-        self.config = self.load_config(self.config_path)
+        if config_data is None:
+            self.config = self.load_config(self.config_path)
+        else:
+            self.config = deepcopy(config_data)
+=======
+    def __init__(
+        self,
+        config_path: Union[str, Path, None] = "douglas.yaml",
+        *,
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        if config_path is None:
+            resolved_path = Path("douglas.yaml")
+        else:
+            resolved_path = Path(config_path)
+
+        self.config_path = resolved_path
+
+        if config is None:
+            self.config = self.load_config(self.config_path)
+        else:
+            self.config = config
+
+>>>>>>> main
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get("project", {}).get("name", "")
         self.lm_provider = self.create_llm_provider()
@@ -274,11 +302,19 @@ class Douglas:
                         self._record_step_outcome(
                             step_name, executed=True, success=False
                         )
-                        self._handle_step_failure(
-                            step_name,
+                        failure_message = getattr(
+                            exc,
+                            "douglas_failure_message",
                             f"{step_name} step exited with status {exc.code}.",
-                            None,
                         )
+                        failure_logs = getattr(exc, "douglas_failure_logs", None)
+                        failure_already_handled = getattr(
+                            exc, "douglas_failure_handled", False
+                        )
+                        if not failure_already_handled:
+                            self._handle_step_failure(
+                                step_name, failure_message, failure_logs
+                            )
                         raise
                     except Exception as exc:
                         self._record_step_outcome(
@@ -750,6 +786,102 @@ class Douglas:
                 "test",
                 "Executed automated tests using pytest.",
                 {"status": "passed"},
+            )
+            return StepExecutionResult(True, True, override_event, already_recorded)
+
+        if step_name == "security":
+            print("Running security step...")
+            tools_config = (
+                step_config.get("tools") if isinstance(step_config, dict) else None
+            )
+            default_paths = None
+            if isinstance(step_config, dict):
+                default_paths = (
+                    step_config.get("paths")
+                    or step_config.get("targets")
+                    or step_config.get("directories")
+                )
+
+            try:
+                report = securitypipe.run_security(
+                    tools=tools_config,
+                    default_paths=default_paths,
+                )
+            except securitypipe.SecurityCheckError as exc:
+                exit_code = exc.exit_code or 1
+                command_display = " ".join(exc.command)
+                logs = self._format_command_output(
+                    command_display,
+                    exc.stdout,
+                    exc.stderr,
+                    exc.exit_code,
+                )
+                message = (
+                    f"Security check '{exc.tool}' failed with exit code {exit_code}."
+                )
+                bug_id = self._handle_step_failure("security", message, logs)
+                summary_details: Dict[str, Any] = {
+                    "status": "failed",
+                    "tool": exc.tool,
+                    "exit_code": exit_code,
+                    "command": exc.command,
+                }
+                if bug_id:
+                    summary_details["bug_id"] = bug_id
+                self._record_agent_summary(
+                    "Security",
+                    "security",
+                    message,
+                    summary_details,
+                )
+                sys_exit = SystemExit(exit_code)
+                sys_exit.douglas_failure_message = message
+                sys_exit.douglas_failure_logs = logs
+                sys_exit.douglas_failure_handled = True
+                raise sys_exit from exc
+
+            tool_names = report.tool_names()
+            history_tools: List[Dict[str, Any]] = []
+            for result in report.results:
+                entry: Dict[str, Any] = {
+                    "name": result.name,
+                    "command": result.command,
+                    "exit_code": result.exit_code,
+                }
+                stdout_excerpt = self._tail_log_excerpt(result.stdout)
+                stderr_excerpt = self._tail_log_excerpt(result.stderr)
+                if stdout_excerpt:
+                    entry["stdout"] = stdout_excerpt
+                if stderr_excerpt:
+                    entry["stderr"] = stderr_excerpt
+                history_tools.append(entry)
+
+            self._write_history_event(
+                "security_checks_passed",
+                {"tools": history_tools},
+            )
+
+            summary_details = {
+                "status": "passed",
+                "tools": tool_names,
+            }
+            if history_tools:
+                summary_details["commands"] = [
+                    entry.get("command") for entry in history_tools
+                ]
+
+            if tool_names:
+                summary_text = "Completed security checks with {}.".format(
+                    ", ".join(tool_names)
+                )
+            else:
+                summary_text = "Completed configured security checks."
+
+            self._record_agent_summary(
+                "Security",
+                "security",
+                summary_text,
+                summary_details,
             )
             return StepExecutionResult(True, True, override_event, already_recorded)
 

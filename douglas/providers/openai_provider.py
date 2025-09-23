@@ -95,17 +95,9 @@ class OpenAIProvider(LLMProvider):
 
         try:
             if self._use_responses_api:
-                response = self._client.chat.completions.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = self._extract_responses_text(response)
+                text = self._call_with_modern_client(prompt)
             else:
-                response = self._client.ChatCompletion.create(
-                    model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                text = self._extract_chat_completion_text(response)
+                text = self._call_with_legacy_client(prompt)
         except Exception as exc:
             print(
                 f"Warning: OpenAI request failed ({exc}). Falling back to stub output."
@@ -120,8 +112,60 @@ class OpenAIProvider(LLMProvider):
 
         return text
 
+    def _call_with_modern_client(self, prompt: str) -> str:
+        if not self._client:
+            return ""
+
+        responses_api = getattr(self._client, "responses", None)
+        if responses_api is not None:
+            try:
+                response = responses_api.create(model=self.model, input=prompt)
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+            else:
+                text = self._extract_responses_text(response)
+                if text:
+                    return text
+
+        chat_interface = getattr(self._client, "chat", None)
+        if chat_interface is not None and hasattr(chat_interface, "completions"):
+            try:
+                response = chat_interface.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+            else:
+                text = self._extract_chat_completion_text(response)
+                if text:
+                    return text
+
+        return ""
+
+    def _call_with_legacy_client(self, prompt: str) -> str:
+        if not self._client:
+            return ""
+
+        try:
+            response = self._client.ChatCompletion.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except Exception:  # pragma: no cover - defensive fallback
+            return ""
+
+        return self._extract_chat_completion_text(response)
+
     def _extract_responses_text(self, response: Any) -> str:
-        collected: list[str] = []
+        text = getattr(response, "output_text", None)
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+
+        if isinstance(response, dict):
+            dict_text = response.get("output_text")
+            if isinstance(dict_text, str) and dict_text.strip():
+                return dict_text.strip()
 
         def _extract_block_text(block: Any) -> Optional[str]:
             if isinstance(block, dict):
@@ -130,7 +174,7 @@ class OpenAIProvider(LLMProvider):
                     value = text_payload.get("value") or text_payload.get("content")
                     if value:
                         return str(value)
-                elif isinstance(text_payload, str):
+                if isinstance(text_payload, str):
                     return text_payload
                 value = block.get("value") or block.get("content")
                 if isinstance(value, str):
@@ -153,17 +197,20 @@ class OpenAIProvider(LLMProvider):
             if isinstance(content, str):
                 return content.strip()
             if isinstance(content, list):
+                pieces: list[str] = []
                 for block in content:
                     text_value = _extract_block_text(block)
                     if text_value:
-                        collected.append(text_value.strip())
-                if collected:
-                    return "\n".join(collected).strip()
+                        pieces.append(text_value.strip())
+                if pieces:
+                    return "\n".join(pieces).strip()
+            text_value = _extract_block_text(content)
+            if text_value:
+                return text_value.strip()
             return None
 
-        # Try to extract from attribute-based response (OpenAI SDK object)
         choices = getattr(response, "choices", None)
-        if choices and len(choices) > 0:
+        if choices:
             message = (
                 choices[0].get("message")
                 if isinstance(choices[0], dict)
@@ -177,16 +224,14 @@ class OpenAIProvider(LLMProvider):
             if normalized:
                 return normalized
 
-        # Try to extract from dict-based response
         if isinstance(response, dict):
             choices = response.get("choices") or []
-            if choices and len(choices) > 0:
+            if choices:
                 message = choices[0].get("message", {})
                 normalized = _normalise_content(message.get("content"))
                 if normalized:
                     return normalized
 
-        # Defensive fallback: try to extract from model_dump if available
         payload = None
         if hasattr(response, "model_dump"):
             try:
@@ -195,13 +240,13 @@ class OpenAIProvider(LLMProvider):
                 payload = None
         if isinstance(payload, dict):
             choices = payload.get("choices") or []
-            if choices and len(choices) > 0:
+            if choices:
                 message = choices[0].get("message", {})
                 normalized = _normalise_content(message.get("content"))
                 if normalized:
                     return normalized
 
-        return "\n".join(collected).strip() if collected else ""
+        return ""
 
     def _extract_chat_completion_text(self, response: Any) -> str:
         if hasattr(response, "choices"):
