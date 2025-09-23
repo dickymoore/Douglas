@@ -1526,23 +1526,28 @@ class Douglas:
         )
         return bug_id
 
-    def _write_history_event(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+    def write_history(self, record: Dict[str, Any]) -> None:
+        if not isinstance(record, dict):
+            raise TypeError('History records must be mappings of field names to values.')
+
+        payload: Dict[str, Any] = dict(record)
         timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
-        record: Dict[str, Any] = {
-            'timestamp': timestamp,
-            'event': event_type,
-        }
-        if payload:
-            record.update(payload)
+        payload.setdefault('timestamp', timestamp)
 
         try:
             self.history_path.parent.mkdir(parents=True, exist_ok=True)
             self._ensure_history_is_git_ignored()
             with self.history_path.open('a', encoding='utf-8') as handle:
-                handle.write(json.dumps(record, sort_keys=False))
+                handle.write(json.dumps(payload, sort_keys=False))
                 handle.write('\n')
         except OSError as exc:
             print(f'Warning: Unable to write history event: {exc}')
+
+    def _write_history_event(self, event_type: str, payload: Optional[Dict[str, Any]] = None) -> None:
+        record: Dict[str, Any] = {'event': event_type}
+        if payload:
+            record.update(payload)
+        self.write_history(record)
 
     def _ensure_history_is_git_ignored(self) -> None:
         git_dir = self.project_root / '.git'
