@@ -51,7 +51,7 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
-    def __init__(self, config_path="douglas.yaml", config_data: Optional[Dict[str, Any]] = None):
+    def __init__(self, config_path="douglas.yaml", config_data: Optional[dict[str, Any]] = None):
         self.config_path = Path(config_path)
         if config_data is None:
             self.config = self.load_config(self.config_path)
