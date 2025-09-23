@@ -149,10 +149,76 @@ class OpenAIProvider(LLMProvider):
 
         return self._extract_chat_completion_text(response)
 
+    def _normalize_response_content(self, content: Any) -> str:
+        """Normalize response message content into a usable text string."""
+
+        if isinstance(content, str):
+            stripped = content.strip()
+            return stripped if stripped else ""
+
+        if isinstance(content, list):
+            segments: list[str] = []
+            for block in content:
+                text_value: Any
+                if isinstance(block, str):
+                    text_value = block
+                elif isinstance(block, dict):
+                    text_value = block.get("text")
+                    if text_value is None:
+                        text_value = block.get("value")
+                else:
+                    text_value = getattr(block, "text", None)
+                    if text_value is None:
+                        text_value = getattr(block, "value", None)
+
+                segment = self._coerce_text_value(text_value)
+                if segment:
+                    segments.append(segment)
+
+            if segments:
+                return "\n".join(segments).strip()
+
+            return ""
+
+        if isinstance(content, dict):
+            return self._coerce_text_value(content)
+
+        return ""
+
+    def _coerce_text_value(self, value: Any) -> str:
+        """Attempt to coerce nested response text blocks into a string."""
+
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped if stripped else ""
+
+        if isinstance(value, list):
+            return self._normalize_response_content(value)
+
+        if isinstance(value, dict):
+            for key in ("value", "text", "content"):
+                if key in value:
+                    result = self._coerce_text_value(value[key])
+                    if result:
+                        return result
+            return ""
+
+        if value is None:
+            return ""
+
+        for attr in ("value", "text", "content"):
+            if hasattr(value, attr):
+                result = self._coerce_text_value(getattr(value, attr))
+                if result:
+                    return result
+
+        text = str(value).strip()
+        return text if text else ""
+
     def _extract_responses_text(self, response: Any) -> str:
-        text = getattr(response, "output_text", None)
-        if isinstance(text, str) and text.strip():
-            return text.strip()
+        text = self._normalize_response_content(getattr(response, "output_text", None))
+        if text:
+            return text
 
         # Try to extract from attribute-based response (OpenAI SDK object)
         choices = getattr(response, "choices", None)
@@ -166,8 +232,9 @@ class OpenAIProvider(LLMProvider):
                 content = message.get("content")
             else:
                 content = getattr(message, "content", None)
-            if isinstance(content, str):
-                return content.strip()
+            text = self._normalize_response_content(content)
+            if text:
+                return text
 
         # Try to extract from dict-based response
         if isinstance(response, dict):
@@ -175,8 +242,9 @@ class OpenAIProvider(LLMProvider):
             if choices and len(choices) > 0:
                 message = choices[0].get("message", {})
                 content = message.get("content")
-                if isinstance(content, str):
-                    return content.strip()
+                text = self._normalize_response_content(content)
+                if text:
+                    return text
 
         # Defensive fallback: try to extract from model_dump if available
         payload = None
@@ -186,26 +254,13 @@ class OpenAIProvider(LLMProvider):
             except Exception:  # pragma: no cover - defensive fallback
                 payload = None
         if isinstance(payload, dict):
-            collected: list[str] = []
             choices = payload.get("choices") or []
             if choices and len(choices) > 0:
                 message = choices[0].get("message", {})
                 content = message.get("content")
-                if isinstance(content, str):
-                    return content.strip()
-                if isinstance(content, list):
-                    for block in content:
-                        text_value = (
-                            block.get("text", {}).get("value")
-                            if isinstance(block, dict)
-                            else getattr(block, "text", None)
-                        )
-                        if text_value:
-                            collected.append(str(text_value))
-                elif isinstance(content, str):
-                    collected.append(content)
-            if collected:
-                return "\n".join(collected).strip()
+                text = self._normalize_response_content(content)
+                if text:
+                    return text
 
         return ""
 
