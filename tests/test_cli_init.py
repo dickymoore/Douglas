@@ -16,7 +16,18 @@ def test_cli_init_without_config(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: object())
 
-    result = runner.invoke(app, ["init", "sample-project", "--non-interactive"])
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "sample-project",
+            "--non-interactive",
+            "--template",
+            "python",
+            "--push-policy",
+            "per_feature_complete",
+        ],
+    )
 
     assert result.exit_code == 0, result.output
 
@@ -30,6 +41,7 @@ def test_cli_init_without_config(monkeypatch, tmp_path):
     assert scaffold_config["loop"]["exit_conditions"] == ["ci_pass"]
     assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
     assert scaffold_config["sprint"]["length_days"] == 10
+    assert scaffold_config["push_policy"] == "per_feature_complete"
 
 
 def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):
@@ -49,8 +61,8 @@ def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):
         def check(self):  # pragma: no cover - not used in this test
             raise AssertionError("check should not be called during init")
 
-        def init_project(self, project_name: str, non_interactive: bool = False):
-            type(self).init_project_calls.append((project_name, non_interactive))
+        def init_project(self, *args, **kwargs):
+            type(self).init_project_calls.append((args, kwargs))
 
     monkeypatch.setattr(
         cli_module, "_load_default_init_config", lambda: sentinel_config
@@ -72,4 +84,9 @@ def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):
         used_config = init_kwargs.get("config")
     assert used_config == sentinel_config
 
-    assert DummyDouglas.init_project_calls == [("demo-project", True)]
+    assert len(DummyDouglas.init_project_calls) == 1
+    init_args, init_call_kwargs = DummyDouglas.init_project_calls[0]
+    assert init_args == (Path("demo-project"),)
+    assert init_call_kwargs["name"] is None
+    assert init_call_kwargs["template"] == "python"
+    assert init_call_kwargs["push_policy"] == "per_feature"

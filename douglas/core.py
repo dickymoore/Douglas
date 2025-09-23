@@ -68,6 +68,7 @@ class Douglas:
     DEFAULT_COMMIT_MESSAGE = "chore: automated commit"
     SUPPORTED_PUSH_POLICIES = {
         "per_feature",
+        "per_feature_complete",
         "per_bug",
         "per_epic",
         "per_sprint",
@@ -2804,98 +2805,258 @@ class Douglas:
             print("Error: Required tools are missing.")
         print("Douglas doctor complete.")
 
-    def _render_init_template(self, filename: str, context: Dict[str, str]) -> str:
-        template_path = TEMPLATE_ROOT / "init" / filename
-        try:
-            template_text = template_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            raise FileNotFoundError(
-                f"Missing initialization template: {template_path}"
-            ) from None
+    def _render_init_template(
+        self, filename: str, context: Dict[str, str], *, template: Optional[str] = None
+    ) -> str:
+        candidate_paths = []
+        if template:
+            candidate_paths.append(TEMPLATE_ROOT / "init" / template / filename)
+        candidate_paths.append(TEMPLATE_ROOT / "init" / filename)
 
-        return Template(template_text).substitute(context)
+        last_error: Optional[FileNotFoundError] = None
+        for template_path in candidate_paths:
+            try:
+                template_text = template_path.read_text(encoding="utf-8")
+            except FileNotFoundError as exc:
+                last_error = exc
+                continue
+            return Template(template_text).substitute(context)
 
-    def init_project(self, project_name: str, non_interactive: bool = False):
-        print(f"Initializing new project '{project_name}' with Douglas...")
-        project_dir = Path(project_name)
-        project_dir.mkdir(parents=True, exist_ok=True)
-        scaffold_name = project_dir.name or "DouglasProject"
-        language = str(
-            self.config.get("project", {}).get("language", "python") or "python"
+        missing_path = candidate_paths[0] if candidate_paths else TEMPLATE_ROOT / "init"
+        raise FileNotFoundError(
+            f"Missing initialization template: {missing_path}"
+        ) from last_error
+
+
+
+
+    def init_project(
+        self,
+        target: Union[str, Path] = ".",
+        *,
+        name: Optional[str] = None,
+        template: str = "python",
+        push_policy: Optional[str] = None,
+        sprint_length: Optional[int] = None,
+        ci: str = "github",
+        git: bool = False,
+        license_type: str = "none",
+        non_interactive: bool = False,
+    ) -> None:
+        target_path = Path(target)
+        print(f"Initializing new project scaffold in '{target_path}' with Douglas...")
+
+        if target_path.exists() and target_path.is_file():
+            raise ValueError(
+                f"Cannot initialize project at file path '{target_path}'. Provide a directory."
+            )
+
+        target_path.mkdir(parents=True, exist_ok=True)
+
+        if non_interactive:
+            # Reserved for future interactive prompts; currently all scaffolding is non-interactive.
+            pass
+
+        scaffold_name = name or (target_path.name or "DouglasProject")
+        normalized_template = (template or "python").strip().lower()
+        if normalized_template not in {"python", "blank"}:
+            print(
+                f"Warning: Unsupported template '{template}'; defaulting to python."
+            )
+            normalized_template = "python"
+
+        policy_candidate = (push_policy or "per_feature").strip().lower()
+        if policy_candidate not in self.SUPPORTED_PUSH_POLICIES:
+            print(
+                f"Warning: Unsupported push_policy '{push_policy}'; defaulting to per_feature."
+            )
+            policy_candidate = "per_feature"
+
+        sprint_length_value = 10 if sprint_length is None else int(sprint_length)
+        if sprint_length_value <= 0:
+            print(
+                f"Warning: sprint length '{sprint_length_value}' is invalid; defaulting to 10."
+            )
+            sprint_length_value = 10
+
+        ci_choice = (ci or "github").strip().lower()
+        if ci_choice not in {"github", "none"}:
+            print(f"Warning: Unsupported CI provider '{ci}'; defaulting to github.")
+            ci_choice = "github"
+
+        license_choice = (license_type or "none").strip().lower()
+        if license_choice not in {"none", "mit"}:
+            print(
+                f"Warning: Unsupported license '{license_type}'; defaulting to none."
+            )
+            license_choice = "none"
+
+        configured_language = (
+            self.config.get("project", {}).get("language")
+            if isinstance(self.config, dict)
+            else None
         )
+        default_language = str(configured_language or "python")
+        language = "python" if normalized_template == "python" else default_language
+
+        def _normalize_package(value: str) -> str:
+            slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
+            if not slug:
+                slug = "app"
+            return slug.replace("-", "_")
+
+        package_name = _normalize_package(scaffold_name)
+        module_name = "app"
+
         context = {
             "project_name": scaffold_name,
+            "package_name": package_name,
+            "module_name": module_name,
             "language": language,
             "language_title": language.title(),
+            "douglas_readme_url": "https://github.com/dickymoore/Douglas",
+            "current_year": str(datetime.now(timezone.utc).year),
+            "license_holder": scaffold_name,
         }
-        config_template = {
+
+        ai_config = self.config.get("ai", {}) if isinstance(self.config, dict) else {}
+        ai_provider = ai_config.get("provider", "openai")
+        ai_model = ai_config.get("model", "gpt-4")
+
+        loop_steps = [
+            {"name": "generate"},
+            {"name": "lint"},
+            {"name": "typecheck"},
+            {"name": "test"},
+            {"name": "commit"},
+            {"name": "push"},
+            {"name": "pr"},
+        ]
+
+        config_template: Dict[str, Any] = {
             "project": {
                 "name": scaffold_name,
                 "description": f"Project scaffolded by Douglas for {scaffold_name}.",
                 "language": language,
             },
             "ai": {
-                "provider": self.config.get("ai", {}).get("provider", "openai"),
-                "model": self.config.get("ai", {}).get("model", "gpt-4"),
-                "prompt": "system_prompt.md",
-            },
-            "cadence": {
-                "ProductOwner": {"sprint_review": "per_sprint"},
-                "ScrumMaster": {"retrospective": "per_sprint"},
-                "DevOps": {"security_checks": "per_feature"},
+                "provider": ai_provider,
+                "model": ai_model,
             },
             "loop": {
-                "steps": [
-                    {"name": "generate"},
-                    {"name": "lint"},
-                    {"name": "typecheck"},
-                    {"name": "security"},
-                    {"name": "test"},
-                    {"name": "retro", "cadence": "per_sprint"},
-                    {"name": "demo", "cadence": "per_sprint"},
-                    {"name": "commit"},
-                    {"name": "push"},
-                    {"name": "pr"},
-                ],
+                "steps": loop_steps,
                 "exit_conditions": ["ci_pass"],
             },
-            "push_policy": "per_feature",
-            "sprint": {"length_days": 10},
+            "push_policy": policy_candidate,
+            "sprint": {"length_days": sprint_length_value},
             "history": {"max_log_excerpt_length": self._max_log_excerpt_length},
-            "vcs": {"default_branch": "main"},
         }
 
-        (project_dir / "douglas.yaml").write_text(
-            yaml.safe_dump(config_template, sort_keys=False),
-            encoding="utf-8",
+        if normalized_template != "blank":
+            config_template["ai"]["prompt"] = "system_prompt.md"
+
+        douglas_config_path = target_path / "douglas.yaml"
+        douglas_config_path.write_text(
+            yaml.safe_dump(config_template, sort_keys=False), encoding="utf-8"
         )
 
-        readme_content = self._render_init_template("README.md.tpl", context)
-        (project_dir / "README.md").write_text(readme_content, encoding="utf-8")
-
-        system_prompt = self._render_init_template("system_prompt.md.tpl", context)
-        (project_dir / "system_prompt.md").write_text(system_prompt, encoding="utf-8")
-
-        gitignore_content = self._render_init_template(".gitignore.tpl", context)
-        (project_dir / ".gitignore").write_text(gitignore_content, encoding="utf-8")
-
-        src_dir = project_dir / "src"
-        src_dir.mkdir(parents=True, exist_ok=True)
-        (src_dir / "__init__.py").write_text("", encoding="utf-8")
-        main_py = self._render_init_template("src_main.py.tpl", context)
-        (src_dir / "main.py").write_text(main_py, encoding="utf-8")
-
-        tests_dir = project_dir / "tests"
-        tests_dir.mkdir(parents=True, exist_ok=True)
-        (tests_dir / "__init__.py").write_text("", encoding="utf-8")
-        test_main = self._render_init_template("tests_test_main.py.tpl", context)
-        (tests_dir / "test_main.py").write_text(test_main, encoding="utf-8")
-
-        workflow_dir = project_dir / ".github" / "workflows"
-        workflow_dir.mkdir(parents=True, exist_ok=True)
-        workflow_content = self._render_init_template("ci.yml.tpl", context)
-        (workflow_dir / "ci.yml").write_text(workflow_content, encoding="utf-8")
-
-        print(
-            "Project initialized with configuration, sample source files, tests, and CI workflow."
+        env_example = self._render_init_template(
+            ".env.example.tpl", context, template=normalized_template
         )
+        (target_path / ".env.example").write_text(env_example, encoding="utf-8")
+
+        gitignore_content = self._render_init_template(
+            ".gitignore.tpl", context, template=normalized_template
+        )
+        (target_path / ".gitignore").write_text(gitignore_content, encoding="utf-8")
+
+        readme_content = self._render_init_template(
+            "README.md.tpl", context, template=normalized_template
+        )
+        (target_path / "README.md").write_text(readme_content, encoding="utf-8")
+
+        if normalized_template == "python":
+            system_prompt = self._render_init_template(
+                "system_prompt.md.tpl", context, template=normalized_template
+            )
+            (target_path / "system_prompt.md").write_text(
+                system_prompt, encoding="utf-8"
+            )
+
+            pyproject = self._render_init_template(
+                "pyproject.toml.tpl", context, template=normalized_template
+            )
+            (target_path / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+
+            requirements_dev = self._render_init_template(
+                "requirements-dev.txt.tpl", context, template=normalized_template
+            )
+            (target_path / "requirements-dev.txt").write_text(
+                requirements_dev, encoding="utf-8"
+            )
+
+            makefile_content = self._render_init_template(
+                "Makefile.tpl", context, template=normalized_template
+            )
+            (target_path / "Makefile").write_text(makefile_content, encoding="utf-8")
+
+            src_dir = target_path / "src" / module_name
+            src_dir.mkdir(parents=True, exist_ok=True)
+            init_py = self._render_init_template(
+                "src_app_init.py.tpl", context, template=normalized_template
+            )
+            (src_dir / "__init__.py").write_text(init_py, encoding="utf-8")
+
+            tests_dir = target_path / "tests"
+            tests_dir.mkdir(parents=True, exist_ok=True)
+            test_py = self._render_init_template(
+                "tests_test_app.py.tpl", context, template=normalized_template
+            )
+            (tests_dir / "test_app.py").write_text(test_py, encoding="utf-8")
+
+        if ci_choice == "github":
+            workflow_dir = target_path / ".github" / "workflows"
+            workflow_dir.mkdir(parents=True, exist_ok=True)
+            workflow_content = self._render_init_template(
+                "ci.yml.tpl", context, template=normalized_template
+            )
+            (workflow_dir / "ci.yml").write_text(workflow_content, encoding="utf-8")
+
+        if license_choice == "mit":
+            license_text = self._render_init_template(
+                "LICENSE.mit.tpl", context, template=normalized_template
+            )
+            (target_path / "LICENSE").write_text(license_text, encoding="utf-8")
+
+        if git:
+            git_dir = target_path / ".git"
+            if not git_dir.exists():
+                try:
+                    subprocess.run(
+                        ["git", "init"], cwd=target_path, check=True, capture_output=True
+                    )
+                    subprocess.run(
+                        ["git", "add", "."],
+                        cwd=target_path,
+                        check=True,
+                        capture_output=True,
+                    )
+                    subprocess.run(
+                        [
+                            "git",
+                            "-c",
+                            "user.name=Douglas",
+                            "-c",
+                            "user.email=douglas@example.com",
+                            "commit",
+                            "-m",
+                            "chore: initial scaffold",
+                        ],
+                        cwd=target_path,
+                        check=True,
+                        capture_output=True,
+                    )
+                except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+                    print(f"Warning: Unable to initialize git repository: {exc}")
+
+        print("Project initialized with Douglas scaffolding.")
