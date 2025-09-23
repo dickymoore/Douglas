@@ -113,10 +113,24 @@ class OpenAIProvider(LLMProvider):
         return text
 
     def _extract_responses_text(self, response: Any) -> str:
-        text = getattr(response, "output_text", None)
-        if text:
-            return text.strip()
+        # Try to extract text from standard OpenAI completion response
+        choices = None
+        if hasattr(response, "choices"):
+            try:
+                choices = response.choices
+            except Exception:
+                choices = None
+        elif isinstance(response, dict):
+            choices = response.get("choices")
 
+        if choices and len(choices) > 0:
+            # For completion endpoint: choices[0].text
+            if isinstance(choices[0], dict):
+                text = choices[0].get("text")
+            else:
+                text = getattr(choices[0], "text", None)
+            if text and isinstance(text, str):
+                return text.strip()
         # Attempt to normalise via dict representation for forward compatibility.
         payload = None
         if hasattr(response, "model_dump"):
