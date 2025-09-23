@@ -39,7 +39,7 @@ class Douglas:
         'per_sprint',
     }
   
-    MAX_LOG_EXCERPT_LENGTH = 4000 # Maximum number of characters kept from the end of CI logs and bug report excerpts.
+    MAX_LOG_EXCERPT_LENGTH = 4000  # Maximum number of characters kept from the end of CI logs and bug report excerpts.
     
     def __init__(self, config_path='douglas.yaml'):
         self.config_path = Path(config_path)

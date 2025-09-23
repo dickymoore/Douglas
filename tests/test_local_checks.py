@@ -112,6 +112,8 @@ def test_push_step_creates_bug_on_local_check_failure(monkeypatch, tmp_path):
     assert bug_file.exists()
     bug_contents = bug_file.read_text(encoding='utf-8')
     assert 'simulated local check failure' in bug_contents
+    assert '### Log Excerpt' in bug_contents
+    assert "Local check command 'fake-tool' not found" in bug_contents
 
     handoff_path = (
         tmp_path
@@ -143,10 +145,17 @@ def test_push_step_creates_bug_on_local_check_failure(monkeypatch, tmp_path):
 
     history_path = tmp_path / 'ai-inbox' / 'history.jsonl'
     assert history_path.exists()
-    events = [json.loads(line)['event'] for line in history_path.read_text(encoding='utf-8').splitlines() if line.strip()]
+    history_entries = [
+        json.loads(line)
+        for line in history_path.read_text(encoding='utf-8').splitlines()
+        if line.strip()
+    ]
+    events = [entry['event'] for entry in history_entries]
     assert 'local_checks_fail' in events
     assert 'bug_reported' in events
     assert 'step_failure' in events
+    step_failures = [entry for entry in history_entries if entry['event'] == 'step_failure']
+    assert step_failures and step_failures[0].get('bug_id', '').startswith('FEAT-BUG-')
 
 
 def test_run_local_checks_success_records_history(monkeypatch, tmp_path):
