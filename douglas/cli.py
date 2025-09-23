@@ -169,7 +169,47 @@ def check(
 
 @app.command()
 def init(
-    project_name: str = typer.Argument(..., help="Directory name for the new project."),
+    path: Optional[Path] = typer.Argument(
+        None,
+        help="Target directory for the new project (defaults to current working directory).",
+    ),
+    name: Optional[str] = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help="Project display name to embed in generated files (defaults to directory name).",
+    ),
+    template: str = typer.Option(
+        "python",
+        "--template",
+        "-t",
+        help="Project template to scaffold (python or blank).",
+    ),
+    push_policy: str = typer.Option(
+        "per_feature",
+        "--push-policy",
+        help="Push policy to encode in the generated douglas.yaml.",
+    ),
+    sprint_length: int = typer.Option(
+        Douglas.DEFAULT_SPRINT_LENGTH_DAYS,
+        "--sprint-length",
+        help="Sprint length (in iterations) to record in the generated douglas.yaml.",
+    ),
+    ci: str = typer.Option(
+        "github",
+        "--ci",
+        help="Continuous integration workflow to generate (github or none).",
+    ),
+    git: bool = typer.Option(
+        False,
+        "--git/--no-git",
+        help="Initialise a git repository and create the first commit after scaffolding.",
+    ),
+    license_: str = typer.Option(
+        "none",
+        "--license",
+        help="License file to include in the scaffold (mit or none).",
+    ),
     non_interactive: bool = typer.Option(
         False,
         "--non-interactive",
@@ -186,7 +226,23 @@ def init(
         default_config_factory=_load_default_init_config,
         allow_missing_config=True,
     )
-    orchestrator.init_project(project_name, non_interactive=non_interactive)
+    target_dir = path if path is not None else Path(".")
+    template_choice = template.strip().lower()
+    push_policy_choice = push_policy.strip().lower()
+    ci_choice = ci.strip().lower()
+    license_choice = license_.strip().lower()
+
+    orchestrator.init_project(
+        target_dir,
+        name=name,
+        template=template_choice,
+        push_policy=push_policy_choice,
+        sprint_length=sprint_length,
+        ci=ci_choice,
+        git=git,
+        license_type=license_choice,
+        non_interactive=non_interactive,
+    )
 
 
 def main() -> None:

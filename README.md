@@ -4,6 +4,63 @@ Douglas is a developer-lifecycle companion that automates an AI-assisted build, 
 
 > **Status:** Douglas is not yet published on PyPI. Install from source as shown below. The bundled OpenAI provider talks to the OpenAI API when credentials are configured and degrades gracefully to a local stub otherwise.
 
+## Two Ways to Use Douglas
+
+### 1. Bootstrapping your own application
+
+Douglas ships with a turnkey `douglas init` command that creates a ready-to-run Python project or a blank scaffold.
+
+**Quickstart (Python template)**
+
+```bash
+# Create a new project in ./my-app with the default per-feature push policy
+douglas init my-app --template python --non-interactive
+
+cd my-app
+cp .env.example .env  # set OPENAI_API_KEY before running the loop
+
+# Prepare a virtual environment and install the scaffolded dev dependencies
+make venv
+
+# Run the generated unit tests
+make test
+
+# Start iterating with Douglas
+douglas run
+```
+
+Additional options let you customise the scaffold:
+
+- `--push-policy` selects release cadence (`per_feature`, `per_feature_complete`, `per_bug`, `per_epic`, `per_sprint`).
+- `--git` initialises a Git repository and commits the scaffolded files.
+- `--ci github` adds a GitHub Actions workflow that runs `pytest -q`.
+- `--license mit` drops in an MIT licence. `--template blank` gives you a minimal README, `.env.example`, `.gitignore`, and configuration file for non-Python stacks.
+
+### 2. Dogfooding the Douglas repo
+
+To work on Douglas itself, clone this repository, install it in editable mode, and run the loop directly against the Douglas source tree:
+
+```bash
+git clone https://github.com/dickymoore/Douglas
+cd Douglas
+python -m pip install -e .[dev]
+douglas run
+```
+
+Dogfooding exercises the full development loop (generate → lint → typecheck → test → commit → push → PR) using Douglas' own configuration and templates.
+
+### Loop cadence vocabulary
+
+- **Loop iteration** – one pass through the configured steps (generate, lint, typecheck, test, commit, push, PR, etc.). Iterations are artificial; multiple loops can happen within a real-world day.
+- **Sprint length** – the number of iterations Douglas maps to a sprint. The default scaffold uses `sprint_length: 10` to mirror two work weeks (10 working days). Adjust this for shorter demos or longer cadences.
+- **Commits** – Douglas creates a commit whenever there are staged changes after a successful iteration.
+- **Pushes** – controlled by the push policy:
+  - `per_feature` pushes after each completed feature (`feat:` commit) once local checks pass.
+  - `per_feature_complete` still commits every iteration but only pushes when a feature has been completed (i.e., a `feat:` commit was produced and no further work is queued).
+  - `per_sprint` waits until the final iteration of the sprint before pushing accumulated commits.
+  - `per_bug` and `per_epic` mirror `per_feature` for `fix:` and `epic:` commits.
+- **Pull requests** – follow the same cadence rules as pushes. When push/PR steps execute, Douglas monitors CI and records history events for traceability.
+
 ## Table of contents
 
 - [Installation & setup](#installation--setup)
@@ -89,7 +146,7 @@ Douglas is entirely driven by a `douglas.yaml` file located at your project root
 - `ai`: provider name, model identifier, and the path to a system prompt file used when constructing LLM prompts. [`douglas/core.py`](douglas/core.py)
 - `cadence`: role/activity cadence preferences consulted by the cadence manager.[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
 - `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations.[`douglas/core.py`](douglas/core.py)
-- `push_policy`: governs when push/PR steps fire (`per_feature`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
+- `push_policy`: governs when push/PR steps fire (`per_feature`, `per_feature_complete`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
 - `sprint`: high-level sprint length used to calculate per-sprint cadences.[`douglas/core.py`](douglas/core.py)
 - `demo` & `retro`: configure sprint demo/retro pipelines (output formats, which sections to generate, backlog destinations). [`douglas/pipelines/demo.py`](douglas/pipelines/demo.py) [`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
 - `security`: optionally list tool aliases (e.g., `bandit`, `semgrep`) or explicit commands under the `loop` step configuration to tailor which scanners run and which paths they inspect.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
@@ -123,7 +180,7 @@ Core capabilities:
 - **Bug ticketing** – `_create_bug_ticket()` appends Markdown entries under `ai-inbox/bugs.md` with log excerpts and commit metadata for any failed step.[`douglas/core.py`](douglas/core.py)
 - **History logging** – `write_history()` persists JSONL events in `ai-inbox/history.jsonl`, ensuring the directory is git-ignored, and most operations call `_write_history_event()` for traceability.[`douglas/core.py`](douglas/core.py)
 - **Summaries & handoffs** – `_record_agent_summary()` and `_raise_agent_handoff()` write markdown summaries/handoffs for each agile role beneath `ai-inbox/sprints/<sprint>/roles/`.[`douglas/core.py`](douglas/core.py)[`douglas/journal/agent_io.py`](douglas/journal/agent_io.py)
-- **Project bootstrap** – `init_project()` scaffolds a new repository (README, system prompt, `.gitignore`, sample `src/main.py`, `tests/test_main.py`, GitHub Actions workflow) using Jinja-style templates.[`douglas/core.py`](douglas/core.py)[`templates/init`](templates/init)
+- **Project bootstrap** – `init_project()` scaffolds a new repository (README, `.env.example`, `.gitignore`, `pyproject.toml`, sample code in `src/app/__init__.py`, unit tests under `tests/test_app.py`, and optional GitHub Actions workflows) using Jinja-style templates.[`douglas/core.py`](douglas/core.py)[`templates/init`](templates/init)
 - **Utilities** – additional helpers fetch git status, collect TODOs, sanitize commit messages, construct PR bodies, discover run-state paths, and expose `check()`/`doctor()` diagnostics.[`douglas/core.py`](douglas/core.py)
 
 ### Cadence & sprint management

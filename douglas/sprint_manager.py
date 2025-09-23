@@ -114,13 +114,15 @@ def should_run_step(
 class SprintManager:
     """Tracks sprint progress and cadence-driven events."""
 
+    DEFAULT_SPRINT_LENGTH_DAYS = 10
+
     _COMMIT_PATTERN = re.compile(
         r"^(?P<type>[a-zA-Z]+)(?P<breaking>!)?(?:\((?P<scope>[^)]+)\))?:"
     )
 
     def __init__(self, sprint_length_days: Optional[int] = None) -> None:
         if sprint_length_days is None:
-            sprint_length_days = 10
+            sprint_length_days = self.DEFAULT_SPRINT_LENGTH_DAYS
         if sprint_length_days <= 0:
             sprint_length_days = 1
 
@@ -129,7 +131,12 @@ class SprintManager:
         self.current_iteration = 1
         self.sprint_index = 1
 
-        self.pending_events: Dict[str, int] = {"feature": 0, "bug": 0, "epic": 0}
+        self.pending_events: Dict[str, int] = {
+            "feature": 0,
+            "bug": 0,
+            "epic": 0,
+            "feature_complete": 0,
+        }
         self.event_consumption: Dict[str, Dict[str, int]] = defaultdict(
             lambda: defaultdict(int)
         )
@@ -138,6 +145,7 @@ class SprintManager:
         self.completed_features: set[str] = set()
         self.completed_bugs: set[str] = set()
         self.completed_epics: set[str] = set()
+        self.release_ready_features: set[str] = set()
 
         self.push_executed_this_sprint = False
         self.pr_executed_this_sprint = False
@@ -162,13 +170,19 @@ class SprintManager:
         self.current_day = 1
         self.current_iteration = 1
 
-        self.pending_events = {"feature": 0, "bug": 0, "epic": 0}
+        self.pending_events = {
+            "feature": 0,
+            "bug": 0,
+            "epic": 0,
+            "feature_complete": 0,
+        }
         self.event_consumption = defaultdict(lambda: defaultdict(int))
         self.step_run_counts = defaultdict(int)
 
         self.completed_features.clear()
         self.completed_bugs.clear()
         self.completed_epics.clear()
+        self.release_ready_features.clear()
 
         self.push_executed_this_sprint = False
         self.pr_executed_this_sprint = False
@@ -214,6 +228,13 @@ class SprintManager:
         if identifier:
             self.completed_features.add(str(identifier))
 
+    def mark_feature_ready_for_release(
+        self, identifier: Optional[str] = None
+    ) -> None:
+        self.pending_events["feature_complete"] += 1
+        if identifier:
+            self.release_ready_features.add(str(identifier))
+
     def mark_bug_completed(self, identifier: Optional[str] = None) -> None:
         self.pending_events["bug"] += 1
         if identifier:
@@ -240,6 +261,7 @@ class SprintManager:
 
         if commit_type == "feat":
             self.mark_feature_completed(scope or None)
+            self.mark_feature_ready_for_release(scope or None)
         elif commit_type == "fix":
             self.mark_bug_completed(scope or None)
         elif commit_type == "epic":
@@ -263,6 +285,22 @@ class SprintManager:
                 )
             return CadenceDecision(
                 False, "Push policy per_feature: no completed features pending."
+            )
+
+        if policy == "per_feature_complete":
+            available = self._available_event_for_consumer(
+                "feature_complete", "push"
+            )
+            if available > 0:
+                plural = "s" if available != 1 else ""
+                return CadenceDecision(
+                    True,
+                    f"{available} completed feature{plural} ready for release.",
+                    "feature_complete",
+                )
+            return CadenceDecision(
+                False,
+                "Push policy per_feature_complete: awaiting completed features.",
             )
 
         if policy == "per_bug":
@@ -330,6 +368,22 @@ class SprintManager:
                 )
             return CadenceDecision(
                 False, "PR policy per_feature: no completed features pending."
+            )
+
+        if policy == "per_feature_complete":
+            available = self._available_event_for_consumer(
+                "feature_complete", "pr"
+            )
+            if available > 0:
+                plural = "s" if available != 1 else ""
+                return CadenceDecision(
+                    True,
+                    f"{available} completed feature{plural} ready for PR.",
+                    "feature_complete",
+                )
+            return CadenceDecision(
+                False,
+                "PR policy per_feature_complete: awaiting completed features.",
             )
 
         if policy == "per_bug":
