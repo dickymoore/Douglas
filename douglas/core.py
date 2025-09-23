@@ -41,6 +41,23 @@ class StepExecutionResult:
     failure_details: Optional[str] = None
 
 
+class DouglasSystemExit(SystemExit):
+    """SystemExit variant that carries Douglas-specific failure metadata."""
+
+    def __init__(
+        self,
+        code: Optional[int] = None,
+        *,
+        message: Optional[str] = None,
+        logs: Optional[str] = None,
+        handled: bool = False,
+    ) -> None:
+        super().__init__(code)
+        self.douglas_failure_message: Optional[str] = message
+        self.douglas_failure_logs: Optional[str] = logs
+        self.douglas_failure_handled: bool = handled
+
+
 class Douglas:
     DEFAULT_COMMIT_MESSAGE = "chore: automated commit"
     SUPPORTED_PUSH_POLICIES = {
@@ -814,10 +831,12 @@ class Douglas:
                     message,
                     summary_details,
                 )
-                sys_exit = SystemExit(exit_code)
-                sys_exit.douglas_failure_message = message
-                sys_exit.douglas_failure_logs = logs
-                sys_exit.douglas_failure_handled = True
+                sys_exit = DouglasSystemExit(
+                    exit_code,
+                    message=message,
+                    logs=logs,
+                    handled=True,
+                )
                 raise sys_exit from exc
 
             tool_names = report.tool_names()

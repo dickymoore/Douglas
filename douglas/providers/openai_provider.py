@@ -1,3 +1,4 @@
+import importlib
 import os
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Optional
@@ -49,15 +50,19 @@ class OpenAIProvider(LLMProvider):
         """Attempt to configure the post-1.0 OpenAI SDK."""
 
         try:
-            from openai import OpenAI
+            openai_module = importlib.import_module("openai")
         except ImportError:
+            return False
+
+        openai_client_factory = getattr(openai_module, "OpenAI", None)
+        if openai_client_factory is None or not callable(openai_client_factory):
             return False
 
         try:
             client_kwargs = {"api_key": self._api_key}
             if self._base_url:
                 client_kwargs["base_url"] = self._base_url
-            self._client = OpenAI(**client_kwargs)
+            self._client = openai_client_factory(**client_kwargs)
             self._use_responses_api = True
             return True
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
@@ -71,7 +76,7 @@ class OpenAIProvider(LLMProvider):
         """Fallback initialisation for the legacy ``openai`` module."""
 
         try:
-            import openai
+            openai_module = importlib.import_module("openai")
         except ImportError:
             print(
                 "Warning: The 'openai' package is not installed. Install it with "
@@ -81,10 +86,10 @@ class OpenAIProvider(LLMProvider):
             return
 
         try:
-            openai.api_key = self._api_key
+            setattr(openai_module, "api_key", self._api_key)
             if self._base_url:
-                openai.api_base = self._base_url
-            self._client = openai
+                setattr(openai_module, "api_base", self._base_url)
+            self._client = openai_module
             self._use_responses_api = False
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
             print(
@@ -165,8 +170,7 @@ class OpenAIProvider(LLMProvider):
         content: Any,
         *,
         depth: int = 0,
-        seen: Optional[set[int]] = None,
-        reference_chain: Optional[list[Any]] = None,
+        reference_chain_ids: Optional[set[int]] = None,
     ) -> str:
         """Normalise nested response content into a string with cycle protection."""
 
@@ -176,11 +180,8 @@ class OpenAIProvider(LLMProvider):
         if depth > self._MAX_NORMALIZATION_DEPTH:
             return ""
 
-        if seen is None:
-            seen = set()
-
-        if reference_chain is None:
-            reference_chain = []
+        if reference_chain_ids is None:
+            reference_chain_ids = set()
 
         if isinstance(content, str):
             stripped = content.strip()
@@ -194,20 +195,16 @@ class OpenAIProvider(LLMProvider):
             content, (str, bytes, bytearray)
         ):
             obj_id = id(content)
-            if obj_id in seen:
+            if obj_id in reference_chain_ids:
                 return ""
-            if any(obj is content for obj in reference_chain):
-                return ""
-            seen.add(obj_id)
-            reference_chain.append(content)
+            reference_chain_ids.add(obj_id)
             try:
                 pieces: list[str] = []
                 for item in content:
                     piece = self._normalize_response_content(
                         item,
                         depth=depth + 1,
-                        seen=seen,
-                        reference_chain=reference_chain,
+                        reference_chain_ids=reference_chain_ids,
                     )
                     if piece:
                         pieces.append(piece)
@@ -215,14 +212,12 @@ class OpenAIProvider(LLMProvider):
                     return "\n".join(pieces).strip()
                 return ""
             finally:
-                seen.discard(obj_id)
-                reference_chain.pop()
+                reference_chain_ids.discard(obj_id)
 
         return self._coerce_text_value(
             content,
             depth=depth + 1,
-            seen=seen,
-            reference_chain=reference_chain,
+            reference_chain_ids=reference_chain_ids,
         )
 
     def _coerce_text_value(
@@ -230,8 +225,7 @@ class OpenAIProvider(LLMProvider):
         value: Any,
         *,
         depth: int = 0,
-        seen: Optional[set[int]] = None,
-        reference_chain: Optional[list[Any]] = None,
+        reference_chain_ids: Optional[set[int]] = None,
     ) -> str:
         """Attempt to coerce nested response text blocks into a string."""
 
@@ -241,20 +235,14 @@ class OpenAIProvider(LLMProvider):
         if depth > self._MAX_NORMALIZATION_DEPTH:
             return ""
 
-        if seen is None:
-            seen = set()
-
-        if reference_chain is None:
-            reference_chain = []
+        if reference_chain_ids is None:
+            reference_chain_ids = set()
 
         obj_id = id(value)
-        if obj_id in seen:
-            return ""
-        if any(obj is value for obj in reference_chain):
+        if obj_id in reference_chain_ids:
             return ""
 
-        seen.add(obj_id)
-        reference_chain.append(value)
+        reference_chain_ids.add(obj_id)
         try:
             if isinstance(value, str):
                 stripped = value.strip()
@@ -267,18 +255,17 @@ class OpenAIProvider(LLMProvider):
             if isinstance(value, Sequence) and not isinstance(
                 value, (str, bytes, bytearray)
             ):
-                pieces: list[str] = []
+                coerced_parts: list[str] = []
                 for item in value:
                     result = self._normalize_response_content(
                         item,
                         depth=depth + 1,
-                        seen=seen,
-                        reference_chain=reference_chain,
+                        reference_chain_ids=reference_chain_ids,
                     )
                     if result:
-                        pieces.append(result)
-                if pieces:
-                    return "\n".join(pieces).strip()
+                        coerced_parts.append(result)
+                if coerced_parts:
+                    return "\n".join(coerced_parts).strip()
                 return ""
 
             if isinstance(value, Mapping):
@@ -294,8 +281,7 @@ class OpenAIProvider(LLMProvider):
                         result = self._normalize_response_content(
                             value[key],
                             depth=depth + 1,
-                            seen=seen,
-                            reference_chain=reference_chain,
+                            reference_chain_ids=reference_chain_ids,
                         )
                         if result:
                             return result
@@ -305,8 +291,7 @@ class OpenAIProvider(LLMProvider):
                     result = self._normalize_response_content(
                         nested_value,
                         depth=depth + 1,
-                        seen=seen,
-                        reference_chain=reference_chain,
+                        reference_chain_ids=reference_chain_ids,
                     )
                     if result:
                         aggregated.append(result)
@@ -325,8 +310,7 @@ class OpenAIProvider(LLMProvider):
                     result = self._normalize_response_content(
                         getattr(value, attr),
                         depth=depth + 1,
-                        seen=seen,
-                        reference_chain=reference_chain,
+                        reference_chain_ids=reference_chain_ids,
                     )
                     if result:
                         return result
@@ -334,24 +318,22 @@ class OpenAIProvider(LLMProvider):
             if isinstance(value, Iterable) and not isinstance(
                 value, (str, bytes, bytearray)
             ):
-                pieces: list[str] = []
+                iterated_parts: list[str] = []
                 for item in value:
                     result = self._normalize_response_content(
                         item,
                         depth=depth + 1,
-                        seen=seen,
-                        reference_chain=reference_chain,
+                        reference_chain_ids=reference_chain_ids,
                     )
                     if result:
-                        pieces.append(result)
-                if pieces:
-                    return "\n".join(pieces).strip()
+                        iterated_parts.append(result)
+                if iterated_parts:
+                    return "\n".join(iterated_parts).strip()
 
             text = str(value).strip()
             return text if text else ""
         finally:
-            seen.discard(obj_id)
-            reference_chain.pop()
+            reference_chain_ids.discard(obj_id)
 
     def _extract_responses_text(self, response: Any) -> str:
         text = self._normalize_response_content(getattr(response, "output_text", None))

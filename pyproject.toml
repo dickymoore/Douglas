@@ -24,3 +24,9 @@ include = ["douglas*"]
 
 [tool.isort]
 profile = "black"
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = ["yaml"]
+ignore_missing_imports = true
