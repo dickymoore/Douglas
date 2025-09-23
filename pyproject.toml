@@ -13,6 +13,7 @@ douglas = "douglas.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "black", "isort", "mypy", "types-PyYAML"]
+openai = ["openai>=1.0.0"]
 
 [build-system]
 requires = ["setuptools>=61", "wheel"]
