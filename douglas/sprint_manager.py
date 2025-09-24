@@ -114,13 +114,15 @@ def should_run_step(
 class SprintManager:
     """Tracks sprint progress and cadence-driven events."""
 
+    DEFAULT_SPRINT_LENGTH_DAYS = 10
+
     _COMMIT_PATTERN = re.compile(
         r"^(?P<type>[a-zA-Z]+)(?P<breaking>!)?(?:\((?P<scope>[^)]+)\))?:"
     )
 
     def __init__(self, sprint_length_days: Optional[int] = None) -> None:
         if sprint_length_days is None:
-            sprint_length_days = 10
+            sprint_length_days = self.DEFAULT_SPRINT_LENGTH_DAYS
         if sprint_length_days <= 0:
             sprint_length_days = 1
 

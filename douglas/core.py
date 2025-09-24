@@ -66,6 +66,7 @@ TLS_ERROR_PATTERN = re.compile(
 
 class Douglas:
     DEFAULT_COMMIT_MESSAGE = "chore: automated commit"
+    DEFAULT_SPRINT_LENGTH_DAYS = SprintManager.DEFAULT_SPRINT_LENGTH_DAYS
     SUPPORTED_PUSH_POLICIES = {
         "per_feature",
         "per_feature_complete",
@@ -172,7 +173,10 @@ class Douglas:
             )
             return None
         if length <= 0:
-            print("Warning: Sprint length must be positive; defaulting to 10 days.")
+            print(
+                f"Warning: Sprint length must be positive; defaulting to "
+                f"{self.DEFAULT_SPRINT_LENGTH_DAYS} days."
+            )
             return None
         return length
 
@@ -1352,10 +1356,11 @@ class Douglas:
 
         combined_output = "\n".join(
             part for part in (result.stdout or "", result.stderr or "") if part
-        ).lower()
+        )
         if not combined_output:
             return False
 
+        combined_output_lower = combined_output.lower()
         network_markers = [
             "connectionerror",
             "connection error",
@@ -1370,7 +1375,7 @@ class Douglas:
             "ssl error",
             "certificate verify failed",
         ]
-        if any(marker in combined_output for marker in network_markers):
+        if any(marker in combined_output_lower for marker in network_markers):
             return True
 
         return bool(TLS_ERROR_PATTERN.search(combined_output))
@@ -2857,7 +2862,17 @@ class Douglas:
             # Reserved for future interactive prompts; currently all scaffolding is non-interactive.
             pass
 
+MERGE_CONFLICT< codex/implement-bootstrapping-command-and-readme-update
+        if name:
+            scaffold_name = name
+        else:
+            resolved_name = target_path.resolve().name
+            if not resolved_name:
+                resolved_name = Path.cwd().resolve().name
+            scaffold_name = resolved_name or "DouglasProject"
+MERGE_CONFLICT=
         scaffold_name = name or (target_path.name or "DouglasProject")
+MERGE_CONFLICT> main
         normalized_template = (template or "python").strip().lower()
         if normalized_template not in {"python", "blank"}:
             print(
@@ -2872,12 +2887,26 @@ class Douglas:
             )
             policy_candidate = "per_feature"
 
+MERGE_CONFLICT< codex/implement-bootstrapping-command-and-readme-update
+        sprint_length_value = (
+            self.DEFAULT_SPRINT_LENGTH_DAYS
+            if sprint_length is None
+            else int(sprint_length)
+        )
+        if sprint_length_value <= 0:
+            print(
+                f"Warning: sprint length '{sprint_length_value}' is invalid; "
+                f"defaulting to {self.DEFAULT_SPRINT_LENGTH_DAYS}."
+            )
+            sprint_length_value = self.DEFAULT_SPRINT_LENGTH_DAYS
+MERGE_CONFLICT=
         sprint_length_value = 10 if sprint_length is None else int(sprint_length)
         if sprint_length_value <= 0:
             print(
                 f"Warning: sprint length '{sprint_length_value}' is invalid; defaulting to 10."
             )
             sprint_length_value = 10
+MERGE_CONFLICT> main
 
         ci_choice = (ci or "github").strip().lower()
         if ci_choice not in {"github", "none"}:
@@ -2899,6 +2928,12 @@ class Douglas:
         default_language = str(configured_language or "python")
         language = "python" if normalized_template == "python" else default_language
 
+MERGE_CONFLICT< codex/implement-bootstrapping-command-and-readme-update
+        package_slug = re.sub(r"[^a-zA-Z0-9]+", "-", scaffold_name.lower()).strip("-")
+        if not package_slug:
+            package_slug = "app"
+        package_name = package_slug.replace("-", "_")
+MERGE_CONFLICT=
         def _normalize_module_name(value: str) -> str:
             slug = re.sub(r"[^a-zA-Z0-9]+", "-", value.lower()).strip("-")
             if not slug:
@@ -2906,6 +2941,7 @@ class Douglas:
             return slug.replace("-", "_")
 
         package_name = _normalize_module_name(scaffold_name)
+MERGE_CONFLICT> main
         module_name = "app"
 
         context = {
