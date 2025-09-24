@@ -8,7 +8,7 @@ ai:
   providers:
     codex:
       provider: "codex"
-      model: "code-davinci-002"
+      model: "gpt-5-codex"
   prompt: "system_prompt.md"
 planning:
   enabled: true
@@ -16,6 +16,10 @@ planning:
   backlog_file: "ai-inbox/backlog/pre-features.yaml"
   allow_overwrite: false
   goal: "Facilitate Sprint Zero by brainstorming epics, features, user stories, and tasks before coding begins."
+  charters:
+    enabled: true
+    directory: "ai-inbox/charters"
+    allow_overwrite: false
 cadence:
   Developer:
     development: daily

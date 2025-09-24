@@ -7,13 +7,19 @@ from douglas.pipelines import plan as planpipe
 
 
 class DummyLLM:
-    def __init__(self, text: str) -> None:
-        self.text = text
+    def __init__(self, responses) -> None:
+        if isinstance(responses, str):
+            responses = [responses]
+        self.responses = list(responses)
         self.prompts: list[str] = []
 
     def generate_code(self, prompt: str) -> str:
         self.prompts.append(prompt)
-        return self.text
+        if not self.responses:
+            return ""
+        if len(self.responses) == 1:
+            return self.responses[0]
+        return self.responses.pop(0)
 
 
 def _build_context(tmp_path: Path, llm) -> planpipe.PlanContext:
@@ -75,7 +81,23 @@ def test_run_plan_creates_backlog(tmp_path):
         estimate: 3
     """
     )
-    llm = DummyLLM(response)
+    charter_yaml = textwrap.dedent(
+        """
+        agents_md: |
+          # Agents
+          - Product Owner
+        agent_charter_md: |
+          # Charter
+          Mission statement.
+        coding_guidelines_md: |
+          # Coding Guidelines
+          - Write tests
+        working_agreements_md: |
+          # Working Agreements
+          - Daily standup
+        """
+    )
+    llm = DummyLLM([response, charter_yaml])
     context = _build_context(tmp_path, llm)
 
     result = planpipe.run_plan(context)
@@ -85,6 +107,10 @@ def test_run_plan_creates_backlog(tmp_path):
     data = yaml.safe_load(result.backlog_path.read_text(encoding="utf-8"))
     assert data["epics"][0]["id"] == "EP-1"
     assert llm.prompts  # ensure LLM was invoked
+    assert "agents_md" in result.charter_paths
+    agents_path = result.charter_paths["agents_md"]
+    assert agents_path.exists()
+    assert "Product Owner" in agents_path.read_text(encoding="utf-8")
 
 
 def test_run_plan_merges_with_existing_backlog(tmp_path):
@@ -103,7 +129,23 @@ def test_run_plan_merges_with_existing_backlog(tmp_path):
         name: Follow-up story
     """
     )
-    llm = DummyLLM(response)
+    charter_yaml = textwrap.dedent(
+        """
+        agents_md: |
+          # Agents
+          - Product Owner
+        agent_charter_md: |
+          # Charter
+          Mission statement.
+        coding_guidelines_md: |
+          # Coding Guidelines
+          - Write tests
+        working_agreements_md: |
+          # Working Agreements
+          - Daily standup
+        """
+    )
+    llm = DummyLLM([response, charter_yaml])
     context = _build_context(tmp_path, llm)
     context.backlog_path.parent.mkdir(parents=True, exist_ok=True)
     context.backlog_path.write_text(
@@ -119,6 +161,7 @@ def test_run_plan_merges_with_existing_backlog(tmp_path):
     assert epic_ids == {"EP-0", "EP-1"}
     story_ids = {story["id"] for story in merged.get("stories", [])}
     assert story_ids == {"US-0", "US-1"}
+    assert result.charter_paths
 
 
 def test_run_plan_skips_without_llm(tmp_path):
@@ -128,3 +171,4 @@ def test_run_plan_skips_without_llm(tmp_path):
 
     assert result.created_backlog is False
     assert result.reason == "no_llm"
+    assert result.charter_paths == {}

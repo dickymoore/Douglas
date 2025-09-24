@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -35,6 +35,7 @@ class PlanResult:
     backlog_data: Optional[Dict[str, Any]]
     raw_response: str
     reason: str = ""
+    charter_paths: Dict[str, Path] = field(default_factory=dict)
 
     def epic_count(self) -> int:
         if not self.backlog_data:
@@ -85,11 +86,14 @@ def run_plan(context: PlanContext) -> PlanResult:
         logger.warning("Planning response could not be parsed; writing raw output as fallback.")
         backlog_data = {"raw": raw_response}
 
-    if existing_backlog and not allow_overwrite:
-        backlog_data = _merge_backlog(existing_backlog, backlog_data)
-        status = "merged"
+    if existing_backlog:
+        if allow_overwrite:
+            status = "overwritten"
+        else:
+            backlog_data = _merge_backlog(existing_backlog, backlog_data)
+            status = "merged"
     else:
-        status = "created" if not existing_backlog else "overwritten"
+        status = "created"
 
     backlog_path.parent.mkdir(parents=True, exist_ok=True)
     backlog_path.write_text(
@@ -109,7 +113,24 @@ def run_plan(context: PlanContext) -> PlanResult:
         feature_count,
     )
 
-    return PlanResult(True, backlog_path, backlog_data, raw_response, reason=status)
+    charter_paths: Dict[str, Path] = {}
+    charters_cfg = context.planning_config.get("charters", {})
+    if llm is not None and charters_cfg.get("enabled", True):
+        charter_paths = _generate_charters(
+            project_root=context.project_root,
+            llm=llm,
+            backlog_data=backlog_data,
+            config=charters_cfg,
+        )
+
+    return PlanResult(
+        True,
+        backlog_path,
+        backlog_data,
+        raw_response,
+        reason=status,
+        charter_paths=charter_paths,
+    )
 
 
 def _load_backlog(path: Path) -> Dict[str, Any]:
@@ -243,3 +264,102 @@ def _merge_list(existing: Any, incoming: Any) -> Optional[List[Any]]:
             if item not in existing_items:
                 existing_items.append(item)
     return existing_items
+
+
+def _generate_charters(
+    *,
+    project_root: Path,
+    llm: Any,
+    backlog_data: Dict[str, Any],
+    config: Dict[str, Any],
+) -> Dict[str, Path]:
+    directory = config.get("directory", "ai-inbox/charters")
+    allow_overwrite = bool(config.get("allow_overwrite", False))
+    charters_dir = project_root / directory
+
+    backlog_yaml = yaml.safe_dump(backlog_data, sort_keys=False)
+    prompt = _build_charter_prompt(backlog_yaml)
+    raw_charters = llm.generate_code(prompt)
+    charter_docs = _parse_charter_documents(raw_charters)
+
+    if not charter_docs:
+        charter_docs = _default_charter_documents(backlog_yaml)
+
+    charters_dir.mkdir(parents=True, exist_ok=True)
+    written: Dict[str, Path] = {}
+
+    for key, text in charter_docs.items():
+        filename = _charter_filename(key)
+        if not filename:
+            continue
+        path = charters_dir / filename
+        if path.exists() and not allow_overwrite:
+            written[key] = path
+            continue
+        path.write_text(text.strip() + "\n", encoding="utf-8")
+        logger.info("Wrote charter document %s", path)
+        written[key] = path
+
+    return written
+
+
+def _build_charter_prompt(backlog_yaml: str) -> str:
+    return textwrap.dedent(
+        f"""
+        You are an agile coach facilitating Sprint Zero for an autonomous software team.
+        Based on the backlog below, produce YAML with the following keys:
+
+        agents_md: |  # Markdown describing each agile agent and their responsibilities
+        agent_charter_md: |  # Markdown capturing team mission, success criteria, and cadences
+        coding_guidelines_md: |  # Markdown summarising code standards, testing expectations, CI rules
+        working_agreements_md: |  # Markdown listing agreements for communication, reviews, and delivery flow
+
+        Backlog context:
+        ```yaml
+        {backlog_yaml}
+        ```
+        """
+    ).strip()
+
+
+def _parse_charter_documents(raw_text: str) -> Dict[str, str]:
+    if not raw_text.strip():
+        return {}
+    try:
+        data = yaml.safe_load(raw_text)
+    except yaml.YAMLError as exc:
+        logger.warning("Unable to parse charter YAML: %s", exc)
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    docs: Dict[str, str] = {}
+    for key in ("agents_md", "agent_charter_md", "coding_guidelines_md", "working_agreements_md"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            docs[key] = value
+    return docs
+
+
+def _default_charter_documents(backlog_yaml: str) -> Dict[str, str]:
+    skeleton = textwrap.dedent(
+        """# Team Charter
+
+        This charter will be elaborated during Sprint Zero.
+        """
+    ).strip()
+    return {
+        "agents_md": "# Agile Agents\n\n- Product Owner\n- Developer\n- Tester\n- DevOps\n",
+        "agent_charter_md": skeleton,
+        "coding_guidelines_md": "# Coding Guidelines\n\n- Follow PEP 8\n- Maintain automated tests\n",
+        "working_agreements_md": "# Working Agreements\n\n- Daily async standup\n- Pull request reviews within 24 hours\n",
+    }
+
+
+def _charter_filename(key: str) -> Optional[str]:
+    mapping = {
+        "agents_md": "AGENTS.md",
+        "agent_charter_md": "AGENT_CHARTER.md",
+        "coding_guidelines_md": "CODING_GUIDELINES.md",
+        "working_agreements_md": "WORKING_AGREEMENTS.md",
+    }
+    return mapping.get(key)

@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import importlib.resources as resources
 from copy import deepcopy
 from pathlib import Path
-from string import Template
 from typing import Callable, Optional
 
 import typer
-import yaml
 
 from douglas import __version__
 from douglas.logging_utils import configure_logging
@@ -54,22 +51,6 @@ def _main(
     return None
 
 
-_DEFAULT_INIT_CONFIG = {
-    "project": {"language": "python"},
-    "ai": {
-        "default_provider": "codex",
-        "providers": {
-            "codex": {
-                "provider": "codex",
-                "model": CodexProvider.DEFAULT_MODEL,
-            }
-        },
-        "prompt": "system_prompt.md",
-    },
-    "history": {"max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH},
-}
-
-
 _PROVIDER_DEFAULT_MODELS = {
     "codex": CodexProvider.DEFAULT_MODEL,
     "openai": OpenAIProvider.DEFAULT_MODEL,
@@ -81,72 +62,7 @@ _PROVIDER_DEFAULT_MODELS = {
 
 
 def _load_default_init_config() -> dict:
-    """Load the seed configuration used when bootstrapping a new project."""
-
-    template_candidates = []
-    try:
-        package_template = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
-    except ModuleNotFoundError:
-        package_template = None  # pragma: no cover - defensive guard
-    else:
-        template_candidates.append(package_template)
-
-    template_candidates.append(TEMPLATE_ROOT / "douglas.yaml.tpl")
-
-    template_text = None
-    last_missing_error: Optional[FileNotFoundError] = None
-    for candidate in template_candidates:
-        try:
-            template_text = candidate.read_text(encoding="utf-8")
-        except FileNotFoundError as exc:
-            last_missing_error = exc
-            continue
-        except OSError as exc:
-            typer.secho(
-                f"Unable to read template file '{candidate}': {exc}. Using fallback defaults.",
-                fg=typer.colors.YELLOW,
-            )
-            return deepcopy(_DEFAULT_INIT_CONFIG)
-
-        if template_text is not None:
-            break
-
-    if template_text is None:
-        if last_missing_error is not None:
-            missing_location = last_missing_error.filename or "douglas.yaml.tpl"
-        else:
-            missing_location = "douglas.yaml.tpl"
-        typer.secho(
-            f"Template file '{missing_location}' not found; falling back to the built-in defaults.",
-            fg=typer.colors.YELLOW,
-        )
-        return deepcopy(_DEFAULT_INIT_CONFIG)
-
-    rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
-    config = yaml.safe_load(rendered) or {}
-
-    ai_cfg = config.setdefault("ai", {}) if isinstance(config, dict) else {}
-    if isinstance(ai_cfg, dict):
-        providers_section = ai_cfg.get("providers")
-        if not isinstance(providers_section, dict):
-            provider_name = ai_cfg.pop("provider", None)
-            model_name = ai_cfg.pop("model", None)
-            providers_section = {}
-            ai_cfg["providers"] = providers_section
-            normalized_provider = (provider_name or "codex").strip().lower() or "codex"
-            entry = providers_section.setdefault(
-                normalized_provider,
-                {"provider": normalized_provider},
-            )
-            if model_name and "model" not in entry:
-                entry["model"] = model_name
-        if "default_provider" not in ai_cfg and providers_section:
-            ai_cfg["default_provider"] = next(iter(providers_section))
-
-    history_cfg = config.setdefault("history", {})
-    history_cfg.setdefault("max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH)
-
-    return config
+    return deepcopy(Douglas.load_scaffold_config())
 
 
 def _config_option(help_text: str) -> Optional[Path]:

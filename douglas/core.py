@@ -1,3 +1,4 @@
+import importlib.resources as resources
 import json
 import re
 import shlex
@@ -97,6 +98,179 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
+    DEFAULT_INIT_TEMPLATE: Dict[str, Any] = {
+        "project": {
+            "name": "PROJECT_NAME",
+            "description": "Project description",
+            "license": "MIT",
+            "language": "python",
+        },
+        "ai": {
+            "default_provider": "codex",
+            "providers": {
+                "codex": {
+                    "provider": "codex",
+                    "model": CodexProvider.DEFAULT_MODEL,
+                }
+            },
+            "prompt": "system_prompt.md",
+        },
+        "planning": {
+            "enabled": True,
+            "sprint_zero_only": False,
+            "backlog_file": "ai-inbox/backlog/pre-features.yaml",
+            "allow_overwrite": False,
+            "goal": "Facilitate Sprint Zero by brainstorming epics, features, user stories, and tasks before coding begins.",
+            "charters": {
+                "enabled": True,
+                "directory": "ai-inbox/charters",
+                "allow_overwrite": False,
+            },
+        },
+        "cadence": {
+            "Developer": {
+                "development": "daily",
+                "quality_checks": "daily",
+                "code_review": "per_feature",
+            },
+            "Tester": {"test_cases": "daily"},
+            "ProductOwner": {
+                "backlog_refinement": "per_sprint",
+                "sprint_review": "per_sprint",
+            },
+            "ScrumMaster": {
+                "daily_standup": "daily",
+                "retrospective": "per_sprint",
+            },
+            "DevOps": {
+                "release": "per_feature",
+                "security_checks": "per_feature",
+            },
+            "Designer": {
+                "design_review": "per_sprint",
+                "ux_review": "per_feature",
+            },
+            "BA": {"requirements_analysis": "per_sprint"},
+            "Stakeholder": {
+                "check_in": "per_sprint",
+                "status_update": "on_demand",
+            },
+        },
+        "loop": {
+            "steps": [
+                {
+                    "name": "standup",
+                    "role": "ScrumMaster",
+                    "activity": "daily_standup",
+                    "cadence": "daily",
+                },
+                {
+                    "name": "plan",
+                    "role": "ProductOwner",
+                    "activity": "backlog_refinement",
+                    "cadence": "per_sprint",
+                },
+                {
+                    "name": "generate",
+                    "role": "Developer",
+                    "activity": "development",
+                },
+                {
+                    "name": "lint",
+                    "role": "Developer",
+                    "activity": "quality_checks",
+                },
+                {
+                    "name": "typecheck",
+                    "role": "Developer",
+                    "activity": "quality_checks",
+                },
+                {
+                    "name": "security",
+                    "role": "DevOps",
+                    "activity": "security_checks",
+                },
+                {
+                    "name": "test",
+                    "role": "Tester",
+                    "activity": "test_cases",
+                },
+                {
+                    "name": "review",
+                    "role": "Developer",
+                    "activity": "code_review",
+                },
+                {
+                    "name": "retro",
+                    "role": "ScrumMaster",
+                    "activity": "retrospective",
+                    "cadence": "per_sprint",
+                },
+                {
+                    "name": "demo",
+                    "role": "ProductOwner",
+                    "activity": "sprint_review",
+                    "cadence": "per_sprint",
+                },
+                {
+                    "name": "commit",
+                    "role": "Developer",
+                    "activity": "development",
+                },
+                {
+                    "name": "push",
+                    "role": "DevOps",
+                    "activity": "release",
+                },
+                {
+                    "name": "pr",
+                    "role": "Developer",
+                    "activity": "code_review",
+                },
+            ],
+            "exit_conditions": ["ci_pass"],
+        },
+        "demo": {
+            "format": "md",
+            "include": [
+                "implemented_features",
+                "how_to_run",
+                "test_results",
+                "limitations",
+                "next_steps",
+            ],
+        },
+        "retro": {
+            "outputs": ["role_instructions", "pre_feature_backlog"],
+            "backlog_file": "ai-inbox/backlog/pre-features.yaml",
+        },
+        "history": {"max_log_excerpt_length": MAX_LOG_EXCERPT_LENGTH},
+        "paths": {
+            "inbox_dir": "ai-inbox",
+            "app_src": "src",
+            "tests": "tests",
+            "demos_dir": "demos",
+            "sprint_prefix": "sprint-",
+            "questions_dir": "user-portal/questions",
+            "questions_archive_dir": "user-portal/questions-archive",
+            "user_portal_dir": "user-portal",
+            "run_state_file": "user-portal/run-state.txt",
+        },
+        "agents": {
+            "roles": [
+                "developer",
+                "tester",
+                "product_owner",
+                "scrum_master",
+                "designer",
+                "ba",
+                "devops",
+            ]
+        },
+        "run_state": {"allowed": ["CONTINUE", "SOFT_STOP", "HARD_STOP"]},
+        "qna": {"filename_pattern": "sprint-{sprint}-{role}-{id}.md"},
+    }
+
     def __init__(
         self,
         config_path: Union[str, Path, None] = "douglas.yaml",
@@ -167,6 +341,51 @@ class Douglas:
         )
         self._run_state_path = self._resolve_run_state_path()
         self._soft_stop_pending = False
+
+    @staticmethod
+    def load_scaffold_config() -> Dict[str, Any]:
+        template_candidates: List[Path] = []
+        try:
+            package_template = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+        except ModuleNotFoundError:
+            package_template = None
+        else:
+            template_candidates.append(package_template)
+
+        template_candidates.append(TEMPLATE_ROOT / "douglas.yaml.tpl")
+
+        template_text = None
+        last_missing: Optional[FileNotFoundError] = None
+        for candidate in template_candidates:
+            try:
+                template_text = candidate.read_text(encoding="utf-8")
+            except FileNotFoundError as exc:
+                last_missing = exc
+                continue
+            except OSError as exc:
+                print(
+                    f"Unable to read template file '{candidate}': {exc}. Using fallback defaults."
+                )
+                return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
+
+            if template_text is not None:
+                break
+
+        if template_text is None:
+            if last_missing is not None:
+                missing_location = last_missing.filename or "douglas.yaml.tpl"
+            else:
+                missing_location = "douglas.yaml.tpl"
+            print(
+                f"Template file '{missing_location}' not found; using fallback defaults."
+            )
+            return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
+
+        rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
+        data = yaml.safe_load(rendered) or {}
+        if not isinstance(data, dict):
+            return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
+        return data
 
     def load_config(self, path):
         try:
@@ -951,6 +1170,16 @@ class Douglas:
                 reason = _friendly_plan_reason(plan_result.reason)
                 message = f"Planning skipped: {reason}."
                 summary_details = {"status": "skipped", "reason": reason}
+
+            if plan_result.charter_paths:
+                charter_map: Dict[str, str] = {}
+                for name, path in plan_result.charter_paths.items():
+                    try:
+                        relative = path.relative_to(self.project_root)
+                    except ValueError:
+                        relative = path
+                    charter_map[name] = str(relative)
+                summary_details["charters"] = charter_map
 
             self._record_agent_summary(
                 "ProductOwner",
@@ -3235,43 +3464,44 @@ class Douglas:
         if not model_choice:
             model_choice = self._default_model_for_provider(provider_choice)
 
-        loop_steps = [
-            {"name": "generate"},
-            {"name": "lint"},
-            {"name": "typecheck"},
-            {"name": "test"},
-            {"name": "commit"},
-            {"name": "push"},
-            {"name": "pr"},
-        ]
+        config_template = deepcopy(self.load_scaffold_config())
 
-        ai_section: Dict[str, Any] = {
-            "default_provider": provider_choice,
-            "providers": {
-                provider_choice: {"provider": provider_choice},
-            },
-        }
-        if model_choice:
-            ai_section["providers"][provider_choice]["model"] = model_choice
-
-        config_template: Dict[str, Any] = {
-            "project": {
+        config_template.setdefault("project", {})
+        config_template["project"].update(
+            {
                 "name": scaffold_name,
                 "description": f"Project scaffolded by Douglas for {scaffold_name}.",
                 "language": language,
-            },
-            "ai": ai_section,
-            "loop": {
-                "steps": loop_steps,
-                "exit_conditions": ["ci_pass"],
-            },
-            "push_policy": policy_candidate,
-            "sprint": {"length_days": sprint_length_value},
-            "history": {"max_log_excerpt_length": self._max_log_excerpt_length},
-        }
+            }
+        )
+        if license_choice == "mit":
+            config_template["project"]["license"] = "MIT"
+        elif license_choice == "none":
+            config_template["project"]["license"] = "none"
+        else:
+            config_template["project"]["license"] = license_choice.upper()
 
+        ai_section: Dict[str, Any] = config_template.setdefault("ai", {})
+        providers_section = ai_section.setdefault("providers", {})
+        providers_section[provider_choice] = {
+            "provider": provider_choice,
+        }
+        if model_choice:
+            providers_section[provider_choice]["model"] = model_choice
+        ai_section["default_provider"] = provider_choice
         if normalized_template != "blank":
-            config_template["ai"]["prompt"] = "system_prompt.md"
+            ai_section["prompt"] = "system_prompt.md"
+
+        loop_section = config_template.setdefault("loop", {})
+        loop_section.setdefault("exit_conditions", ["ci_pass"])
+        if not loop_section.get("steps"):
+            loop_section["steps"] = deepcopy(Douglas.DEFAULT_INIT_TEMPLATE["loop"]["steps"])
+
+        config_template["push_policy"] = policy_candidate
+        config_template.setdefault("sprint", {})["length_days"] = sprint_length_value
+        config_template.setdefault("history", {})[
+            "max_log_excerpt_length"
+        ] = self._max_log_excerpt_length
 
         douglas_config_path = target_path / "douglas.yaml"
         douglas_config_path.write_text(

@@ -1,21 +1,33 @@
 project:
-  name: "example"
-  description: "An example project using Douglas"
-  license: "MIT"
-  language: "python"
+  name: Douglas
+  description: Project scaffolded by Douglas for Douglas.
+  license: none
+  language: python
 ai:
-  provider: "openai"
-  model: "gpt-4"
-  prompt: "system_prompt.md"
+  default_provider: codex
+  providers:
+    codex:
+      provider: codex
+      model: gpt-5-codex
+  prompt: system_prompt.md
+planning:
+  enabled: true
+  sprint_zero_only: false
+  backlog_file: ai-inbox/backlog/pre-features.yaml
+  allow_overwrite: false
+  goal: Facilitate Sprint Zero by brainstorming epics, features, user stories, and
+    tasks before coding begins.
+  charters:
+    enabled: true
+    directory: ai-inbox/charters
+    allow_overwrite: false
 cadence:
   Developer:
     development: daily
     quality_checks: daily
     code_review: per_feature
-    retrospective: per_sprint
   Tester:
     test_cases: daily
-    regression: per_sprint
   ProductOwner:
     backlog_refinement: per_sprint
     sprint_review: per_sprint
@@ -35,94 +47,92 @@ cadence:
     status_update: on_demand
 loop:
   steps:
-    - name: generate
-      role: Developer
-      activity: development
-    - name: lint
-      role: Developer
-      activity: quality_checks
-    - name: typecheck
-      role: Developer
-      activity: quality_checks
-    - name: security
-      role: DevOps
-      activity: security_checks
-    - name: test
-      role: Tester
-      activity: test_cases
-    - name: review
-      role: Developer
-      activity: code_review
-    - name: retro
-      role: ScrumMaster
-      activity: retrospective
-      cadence: per_sprint
-    - name: demo
-      role: ProductOwner
-      activity: sprint_review
-      cadence: per_sprint
-    - name: commit
-      role: Developer
-      activity: development
-    - name: push
-      role: DevOps
-      activity: release
-    - name: pr
-      role: Developer
-      activity: code_review
+  - name: standup
+    role: ScrumMaster
+    activity: daily_standup
+    cadence: daily
+  - name: plan
+    role: ProductOwner
+    activity: backlog_refinement
+    cadence: per_sprint
+  - name: generate
+    role: Developer
+    activity: development
+  - name: lint
+    role: Developer
+    activity: quality_checks
+  - name: typecheck
+    role: Developer
+    activity: quality_checks
+  - name: security
+    role: DevOps
+    activity: security_checks
+  - name: test
+    role: Tester
+    activity: test_cases
+  - name: review
+    role: Developer
+    activity: code_review
+  - name: retro
+    role: ScrumMaster
+    activity: retrospective
+    cadence: per_sprint
+  - name: demo
+    role: ProductOwner
+    activity: sprint_review
+    cadence: per_sprint
+  - name: commit
+    role: Developer
+    activity: development
+  - name: push
+    role: DevOps
+    activity: release
+  - name: pr
+    role: Developer
+    activity: code_review
   exit_conditions:
-    - "ci_pass"
-  max_iterations: 3
-push_policy: per_feature
+  - ci_pass
 sprint:
   length_days: 10
+push_policy: per_feature
 demo:
-  format: "md"
+  format: md
   include:
-    - implemented_features
-    - how_to_run
-    - test_results
-    - limitations
-    - next_steps
+  - implemented_features
+  - how_to_run
+  - test_results
+  - limitations
+  - next_steps
 retro:
   outputs:
-    - role_instructions
-    - pre_feature_backlog
-  backlog_file: "ai-inbox/backlog/pre-features.yaml"
+  - role_instructions
+  - pre_feature_backlog
+  backlog_file: ai-inbox/backlog/pre-features.yaml
 history:
-  # Tail length (characters) preserved from CI logs and bug tickets. Increase to keep more context at the cost of larger files.
   max_log_excerpt_length: 4000
-vcs:
-  default_branch: "main"
-  conventional_commits: true
-ci:
-  local_runner: true
-  github_actions: true
-  cache:
-    pip: true
 paths:
-  inbox_dir: "ai-inbox"
-  app_src: "src"
-  tests: "tests"
-  demos_dir: "demos"
-  sprint_prefix: "sprint-"
-  questions_dir: "user-portal/questions"
-  questions_archive_dir: "user-portal/questions-archive"
-  user_portal_dir: "user-portal"
-  run_state_file: "user-portal/run-state.txt"
+  inbox_dir: ai-inbox
+  app_src: src
+  tests: tests
+  demos_dir: demos
+  sprint_prefix: sprint-
+  questions_dir: user-portal/questions
+  questions_archive_dir: user-portal/questions-archive
+  user_portal_dir: user-portal
+  run_state_file: user-portal/run-state.txt
 agents:
   roles:
-    - "developer"
-    - "tester"
-    - "product_owner"
-    - "scrum_master"
-    - "designer"
-    - "ba"
-    - "devops"
+  - developer
+  - tester
+  - product_owner
+  - scrum_master
+  - designer
+  - ba
+  - devops
 run_state:
   allowed:
-    - "CONTINUE"
-    - "SOFT_STOP"
-    - "HARD_STOP"
+  - CONTINUE
+  - SOFT_STOP
+  - HARD_STOP
 qna:
-  filename_pattern: "sprint-{sprint}-{role}-{id}.md"
+  filename_pattern: sprint-{sprint}-{role}-{id}.md

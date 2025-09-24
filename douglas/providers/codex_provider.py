@@ -22,7 +22,7 @@ logger = get_logger(__name__)
 class CodexProvider(OpenAIProvider):
     """LLM provider that targets the (legacy) OpenAI Codex models."""
 
-    DEFAULT_MODEL = "code-davinci-002"
+    DEFAULT_MODEL = "gpt-5-codex"
     _CLI_EXECUTABLE_ENV = "CODEX_CLI_PATH"
     _CLI_DEFAULT_EXECUTABLE = "codex"
     _CLI_AUTH_FILE_ENV = "CODEX_AUTH_FILE"

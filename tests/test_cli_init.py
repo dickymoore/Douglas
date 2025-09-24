@@ -55,11 +55,18 @@ def test_cli_init_without_config(monkeypatch, tmp_path):
     assert scaffold_config["project"]["name"] == "sample-project"
     assert scaffold_config["ai"]["default_provider"] == "codex"
     providers = scaffold_config["ai"].get("providers", {})
-    assert providers.get("codex", {}).get("provider") == "codex"
+    codex_cfg = providers.get("codex", {})
+    assert codex_cfg.get("provider") == "codex"
+    assert codex_cfg.get("model") == "gpt-5-codex"
     assert scaffold_config["loop"]["exit_conditions"] == ["ci_pass"]
     assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
     assert scaffold_config["sprint"]["length_days"] == 10
     assert scaffold_config["push_policy"] == "per_feature_complete"
+    planning = scaffold_config.get("planning", {})
+    assert planning.get("enabled") is True
+    assert planning.get("sprint_zero_only") is False
+    charters = planning.get("charters", {})
+    assert charters.get("enabled", True) is True
 
 
 def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):

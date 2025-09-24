@@ -48,10 +48,16 @@ def test_init_project_creates_python_scaffold(monkeypatch, tmp_path):
     assert scaffold_config["push_policy"] == "per_feature_complete"
     assert scaffold_config["loop"]["exit_conditions"] == ["ci_pass"]
     assert [step["name"] for step in scaffold_config["loop"]["steps"]] == [
+        "standup",
+        "plan",
         "generate",
         "lint",
         "typecheck",
+        "security",
         "test",
+        "review",
+        "retro",
+        "demo",
         "commit",
         "push",
         "pr",

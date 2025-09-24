@@ -1,0 +1,13 @@
+typer>=0.9
+pyyaml>=6.0
+
+[dev]
+pytest
+ruff
+black
+isort
+mypy
+types-PyYAML
+
+[openai]
+openai>=1.0.0

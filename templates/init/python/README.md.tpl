@@ -22,5 +22,6 @@ This project was bootstrapped with [Douglas](${douglas_readme_url}).
 - Install provider SDKs (`pip install openai`, etc.) if you plan to use them directly and export the corresponding API keys. Running `python -c "import openai"` inside the venv is a quick sanity check.
 - Sprint Zero planning is enabled by default (`planning.enabled: true` in `douglas.yaml`) and runs every loop to keep the backlog fresh. Set `sprint_zero_only: true` or disable planning entirely if you prefer manual backlog grooming.
 - Douglas records standup notes under `ai-inbox/sprints/` each iteration. Review these alongside retrospective and demo artifacts to track progress.
+- Charter documents for the autonomous agents (`AGENTS.md`, `AGENT_CHARTER.md`, etc.) are generated in `ai-inbox/charters/` during Sprint Zero.
 
 Refer to the Douglas README for detailed documentation and advanced workflows.
