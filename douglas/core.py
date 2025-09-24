@@ -22,6 +22,7 @@ from douglas.journal import questions as question_journal
 from douglas.pipelines import demo as demopipe
 from douglas.pipelines import lint
 from douglas.pipelines import plan as planpipe
+from douglas.pipelines import standup as standuppipe
 from douglas.pipelines import retro as retropipe
 from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
@@ -810,6 +811,61 @@ class Douglas:
             print("Running generate step...")
             self.generate()
             return StepExecutionResult(True, True, override_event, already_recorded)
+
+        if step_name == "standup":
+            print("Running standup step...")
+            planning_config = self.config.get("planning") or {}
+            backlog_relative = planning_config.get(
+                "backlog_file",
+                self.config.get("retro", {}).get("backlog_file", "ai-inbox/backlog/pre-features.yaml"),
+            )
+            backlog_path = self.project_root / backlog_relative
+            questions_dir = self.project_root / self.config.get("paths", {}).get(
+                "questions_dir", "user-portal/questions"
+            )
+            standup_output_dir = (
+                self.project_root
+                / "ai-inbox"
+                / "sprints"
+                / f"sprint-{self.sprint_manager.sprint_index}"
+                / "standups"
+            )
+
+            standup_context = standuppipe.StandupContext(
+                project_root=self.project_root,
+                sprint_index=self.sprint_manager.sprint_index,
+                sprint_day=self.sprint_manager.current_day,
+                backlog_path=backlog_path,
+                questions_dir=questions_dir,
+                output_dir=standup_output_dir,
+                planning_config=planning_config,
+            )
+
+            standup_result = standuppipe.run_standup(standup_context)
+            summary_details = {
+                "status": "recorded" if standup_result.wrote_report else "skipped",
+                "output": str(standup_result.output_path.relative_to(self.project_root)),
+                "stories": standup_result.story_count,
+                "blockers": standup_result.blocker_count,
+            }
+            self._record_agent_summary(
+                "ScrumMaster",
+                "standup",
+                "Documented daily standup snapshot.",
+                summary_details,
+            )
+            self._write_history_event(
+                "standup_snapshot",
+                {
+                    "sprint": self.sprint_manager.sprint_index,
+                    "day": self.sprint_manager.current_day,
+                    "output": summary_details["output"],
+                    "stories": standup_result.story_count,
+                    "blockers": standup_result.blocker_count,
+                },
+            )
+            self._loop_outcomes["standup"] = summary_details
+            return StepExecutionResult(True, True, None, already_recorded)
 
         if step_name == "plan":
             print("Running plan step...")

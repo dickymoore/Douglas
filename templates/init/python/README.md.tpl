@@ -11,7 +11,7 @@ This project was bootstrapped with [Douglas](${douglas_readme_url}).
 5. Run the tests with `make test`.
 6. Update `system_prompt.md` with the product vision and early hypotheses; Sprint Zero planning will read it to draft epics/features/stories/tasks.
 7. (Optional) If you already have a backlog, populate `ai-inbox/backlog/pre-features.yaml`; otherwise Douglas will generate one during Sprint Zero.
-8. Start iterating with `douglas run` once you're ready.
+8. Start iterating with `douglas run` once you're ready. Each loop runs a daily standup snapshot, refines the backlog, and then executes the engineering steps.
 
 ### Before you run the loop
 
@@ -20,6 +20,7 @@ This project was bootstrapped with [Douglas](${douglas_readme_url}).
 - Initialise Git (`git init`) if you didn't supply `--git` during scaffolding so Douglas can inspect history and manage commits, then capture the scaffold as your first commit (`git add . && git commit -m "Initial scaffold"`).
 - The default pipelines expect `ruff`, `black`, `isort`, `mypy`, and the OpenAI SDK. They are included in `requirements-dev.txt`; rerun `make venv` after pulling updates, or install them manually inside the active venv. If a tool still reports missing, run `pip install ruff black isort mypy openai` while the venv is active.
 - Install provider SDKs (`pip install openai`, etc.) if you plan to use them directly and export the corresponding API keys. Running `python -c "import openai"` inside the venv is a quick sanity check.
-- Sprint Zero planning is enabled by default (`planning.enabled: true` in `douglas.yaml`). Set it to `false` or toggle `sprint_zero_only` if you want to bypass automated backlog seeding.
+- Sprint Zero planning is enabled by default (`planning.enabled: true` in `douglas.yaml`) and runs every loop to keep the backlog fresh. Set `sprint_zero_only: true` or disable planning entirely if you prefer manual backlog grooming.
+- Douglas records standup notes under `ai-inbox/sprints/` each iteration. Review these alongside retrospective and demo artifacts to track progress.
 
 Refer to the Douglas README for detailed documentation and advanced workflows.

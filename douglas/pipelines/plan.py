@@ -53,12 +53,11 @@ def run_plan(context: PlanContext) -> PlanResult:
     """Run Sprint Zero planning if a backlog does not already exist."""
 
     backlog_path = context.backlog_path
-    backlog_exists = backlog_path.exists() and backlog_path.read_text(encoding="utf-8").strip() != ""
+    backlog_exists = backlog_path.exists()
     allow_overwrite = bool(context.planning_config.get("allow_overwrite"))
-
-    if backlog_exists and not allow_overwrite:
-        logger.info("Backlog already present at %s; skipping planning step.", backlog_path)
-        return PlanResult(False, backlog_path, None, "", reason="existing_backlog")
+    existing_backlog: Dict[str, Any] = {}
+    if backlog_exists:
+        existing_backlog = _load_backlog(backlog_path)
 
     llm = context.llm
     if llm is None:
@@ -86,6 +85,12 @@ def run_plan(context: PlanContext) -> PlanResult:
         logger.warning("Planning response could not be parsed; writing raw output as fallback.")
         backlog_data = {"raw": raw_response}
 
+    if existing_backlog and not allow_overwrite:
+        backlog_data = _merge_backlog(existing_backlog, backlog_data)
+        status = "merged"
+    else:
+        status = "created" if not existing_backlog else "overwritten"
+
     backlog_path.parent.mkdir(parents=True, exist_ok=True)
     backlog_path.write_text(
         yaml.safe_dump(backlog_data, sort_keys=False),
@@ -104,7 +109,28 @@ def run_plan(context: PlanContext) -> PlanResult:
         feature_count,
     )
 
-    return PlanResult(True, backlog_path, backlog_data, raw_response)
+    return PlanResult(True, backlog_path, backlog_data, raw_response, reason=status)
+
+
+def _load_backlog(path: Path) -> Dict[str, Any]:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        logger.warning("Unable to read existing backlog %s: %s", path, exc)
+        return {}
+
+    if not text.strip():
+        return {}
+
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        logger.warning("Existing backlog at %s is not valid YAML: %s", path, exc)
+        return {}
+
+    return data if isinstance(data, dict) else {}
 
 
 def _read_file(path: Path) -> str:
@@ -179,3 +205,41 @@ def _parse_backlog(raw_text: str) -> Optional[Dict[str, Any]]:
         return {"plan": data}
 
     return data
+
+
+def _merge_backlog(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    result = dict(existing)
+
+    for key in ("epics", "features", "stories", "tasks", "roadmap", "dependencies"):
+        merged = _merge_list(existing.get(key), incoming.get(key))
+        if merged is not None:
+            result[key] = merged
+
+    # Allow other scalar keys to overwrite
+    for key, value in incoming.items():
+        if key not in result:
+            result[key] = value
+
+    return result
+
+
+def _merge_list(existing: Any, incoming: Any) -> Optional[List[Any]]:
+    if not incoming:
+        return existing if isinstance(existing, list) else None
+
+    if not isinstance(incoming, list):
+        return existing if isinstance(existing, list) else None
+
+    existing_items = list(existing) if isinstance(existing, list) else []
+    index: Dict[Any, Any] = {}
+    for item in existing_items:
+        if isinstance(item, dict) and "id" in item:
+            index[item["id"]] = item
+    for item in incoming:
+        if isinstance(item, dict) and "id" in item:
+            if item["id"] not in index:
+                existing_items.append(item)
+        else:
+            if item not in existing_items:
+                existing_items.append(item)
+    return existing_items

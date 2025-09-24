@@ -48,8 +48,12 @@ make venv
 . .venv/bin/activate && ruff --version && black --version && isort --version && mypy --version && python -c "import openai; print('openai', openai.__version__)"
 # If any are missing, rerun `pip install -r requirements-dev.txt` or install manually with `pip install ruff black isort mypy openai` while the venv is active.
 
-# Sprint Zero planning runs before the first development loop when `planning.enabled: true` in `douglas.yaml`. It seeds `ai-inbox/backlog/pre-features.yaml` with epics, features, stories, and tasks. Disable it by flipping `planning.enabled` or keep it Sprint Zero only with `sprint_zero_only`.
-# Use `--log-level info` or `--log-level debug` (or set `DOUGLAS_LOG_LEVEL`) to surface the structured planning and Codex CLI logs introduced in this release.
+# Optional: you may need to reinstall Douglas from the new .venv:
+
+
+- Sprint Zero planning runs automatically when `planning.enabled: true` and repeats each loop so the backlog stays fresh. Flip `sprint_zero_only` to `true` if you only want it on the first iteration.
+- Each iteration records a standup snapshot under `ai-inbox/sprints/` before coding begins. Review these alongside retro/demo outputs to track progress.
+- Use `--log-level info` or `--log-level debug` (or set `DOUGLAS_LOG_LEVEL`) to surface the structured planning and Codex CLI logs introduced in this release.
 
 # Run the generated unit tests
 make test

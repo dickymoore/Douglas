@@ -87,15 +87,44 @@ def test_run_plan_creates_backlog(tmp_path):
     assert llm.prompts  # ensure LLM was invoked
 
 
-def test_run_plan_skips_when_backlog_exists(tmp_path):
-    llm = DummyLLM("should-not-be-used")
+def test_run_plan_merges_with_existing_backlog(tmp_path):
+    existing_backlog = {
+        "epics": [{"id": "EP-0", "name": "Baseline"}],
+        "stories": [{"id": "US-0", "name": "Initial story"}],
+    }
+    response = textwrap.dedent(
+        """
+    epics:
+      - id: EP-1
+        name: New Epic
+        features: []
+    stories:
+      - id: US-1
+        name: Follow-up story
+    """
+    )
+    llm = DummyLLM(response)
     context = _build_context(tmp_path, llm)
     context.backlog_path.parent.mkdir(parents=True, exist_ok=True)
-    context.backlog_path.write_text("epics: []\n", encoding="utf-8")
+    context.backlog_path.write_text(
+        yaml.safe_dump(existing_backlog, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    result = planpipe.run_plan(context)
+
+    assert result.created_backlog is True
+    merged = yaml.safe_load(context.backlog_path.read_text(encoding="utf-8"))
+    epic_ids = {epic["id"] for epic in merged.get("epics", [])}
+    assert epic_ids == {"EP-0", "EP-1"}
+    story_ids = {story["id"] for story in merged.get("stories", [])}
+    assert story_ids == {"US-0", "US-1"}
+
+
+def test_run_plan_skips_without_llm(tmp_path):
+    context = _build_context(tmp_path, llm=None)
 
     result = planpipe.run_plan(context)
 
     assert result.created_backlog is False
-    assert result.reason == "existing_backlog"
-    assert context.backlog_path.read_text(encoding="utf-8") == "epics: []\n"
-    assert llm.prompts == []
+    assert result.reason == "no_llm"
