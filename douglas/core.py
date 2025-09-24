@@ -25,16 +25,16 @@ from douglas.pipelines import retro as retropipe
 from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
 from douglas.pipelines import typecheck
-from douglas.providers.llm_provider import LLMProvider
-from douglas.providers.provider_registry import (
-    LLMProviderRegistry,
-    StaticLLMProviderRegistry,
-)
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
 from douglas.providers.copilot_provider import CopilotProvider
 from douglas.providers.gemini_provider import GeminiProvider
+from douglas.providers.llm_provider import LLMProvider
 from douglas.providers.openai_provider import OpenAIProvider
+from douglas.providers.provider_registry import (
+    LLMProviderRegistry,
+    StaticLLMProviderRegistry,
+)
 from douglas.sprint_manager import CadenceDecision, SprintManager
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "templates"
