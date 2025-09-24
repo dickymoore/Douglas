@@ -11,6 +11,7 @@ from typing import Callable, Optional
 import typer
 import yaml
 
+from douglas import __version__
 from douglas.core import Douglas, TEMPLATE_ROOT
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
@@ -19,6 +20,30 @@ from douglas.providers.gemini_provider import GeminiProvider
 from douglas.providers.openai_provider import OpenAIProvider
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
+
+
+def _version_callback(value: bool) -> None:
+    """Print the Douglas package version when requested."""
+
+    if value:
+        typer.echo(f"Douglas {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show the Douglas version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Global callback to wire shared options like --version."""
+
+    return None
 
 
 _DEFAULT_INIT_CONFIG = {

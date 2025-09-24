@@ -22,7 +22,21 @@ command -v douglas >/dev/null || { echo "Douglas CLI not found. See Installation
 douglas init my-app --template python --non-interactive
 
 cd my-app
+
+# Ensure this directory is a Git repo (skip if you passed --git above)
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git init
+
+# Optional: record the scaffold as the first commit so Douglas can reference HEAD
+git rev-parse HEAD >/dev/null 2>&1 || { git add . && git commit -m "Initial scaffold"; }
+
+# Keep the Douglas CLI available in the active environment
+douglas --version >/dev/null 2>&1 || pip install -e /path/to/Douglas  # replace path with your local clone; use `pip install douglas` once published
+
+# Ensure Codex CLI is up to date (0.40.0 or newer)
+codex --version  # should print codex-cli 0.40.0 (or newer)
+
 codex login  # authenticate via the Codex CLI in your browser (default provider credentials)
+codex exec "echo Codex CLI ready"  # success output confirms the CLI is authenticated and usable
 
 # Optional: copy the example env file if you prefer direct API tokens
 cp .env.example .env
@@ -30,12 +44,18 @@ cp .env.example .env
 # Prepare a virtual environment and install the scaffolded dev dependencies
 make venv
 
+# Optional: confirm lint/type tooling and provider SDKs are available (installed via `make venv`)
+. .venv/bin/activate && ruff --version && black --version && isort --version && mypy --version && python -c "import openai; print('openai', openai.__version__)"
+# If any are missing, rerun `pip install -r requirements-dev.txt` or install manually with `pip install ruff black isort mypy openai` while the venv is active.
+
 # Run the generated unit tests
 make test
 
-# Start iterating with Douglas
+# Start iterating with Douglas (SEE NOTE BELOW)
 douglas run
 ```
+
+Before you launch the first loop, edit the scaffolded `system_prompt.md` (and optionally `ai-inbox/backlog/pre-features.yaml`) to describe the feature, sprint goal, or backlog items you want Douglas to tackle. The orchestrator reads those files during `douglas run`, so giving it direction up front keeps the initial iteration focused on the work you care about.
 
 Additional options let you customise the scaffold:
 
