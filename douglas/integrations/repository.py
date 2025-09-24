@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Optional, Protocol
 
 from douglas.integrations.github import GitHub
 
@@ -53,7 +53,7 @@ class AzureDevOpsIntegration:
         return "Azure DevOps pull request stub created; manual follow-up required."
 
 
-def resolve_repository_integration(name: str | None) -> RepositoryIntegration:
+def resolve_repository_integration(name: Optional[str]) -> RepositoryIntegration:
     normalized = (name or "github").strip().lower()
     if normalized in {"github", "gh"}:
         return GitHubIntegration()

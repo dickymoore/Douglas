@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set
 
 from douglas.providers.codex_provider import CodexProvider
 from douglas.providers.llm_provider import LLMProvider
@@ -212,7 +212,7 @@ class LLMProviderRegistry:
         key: str,
         provider: LLMProvider,
         *,
-        aliases: Optional[set[str]] = None,
+        aliases: Optional[Set[str]] = None,
     ) -> str:
         canonical = self._normalize(key) or f"provider_{len(self._providers)}"
         self._providers[canonical] = provider

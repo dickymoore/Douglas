@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import os
 from collections.abc import Mapping, Sequence
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from douglas.providers.llm_provider import LLMProvider
 
@@ -112,7 +112,7 @@ class ClaudeCodeProvider(LLMProvider):
                     stripped = value.strip()
                     if stripped:
                         return stripped
-            collected: list[str] = []
+            collected: List[str] = []
             for value in content.values():
                 piece = self._coerce_content(value)
                 if piece:
@@ -121,7 +121,7 @@ class ClaudeCodeProvider(LLMProvider):
         if isinstance(content, Sequence) and not isinstance(
             content, (str, bytes, bytearray)
         ):
-            items: list[str] = []
+            items: List[str] = []
             for item in content:
                 piece = self._coerce_content(item)
                 if piece:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import os
 from collections.abc import Mapping, Sequence
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from douglas.providers.llm_provider import LLMProvider
 
@@ -114,7 +114,7 @@ class GeminiProvider(LLMProvider):
             stripped = content.strip()
             return stripped if stripped else ""
         if isinstance(content, Mapping):
-            aggregated: list[str] = []
+            aggregated: List[str] = []
             for value in content.values():
                 piece = self._coerce_content(value)
                 if piece:
@@ -123,7 +123,7 @@ class GeminiProvider(LLMProvider):
         if isinstance(content, Sequence) and not isinstance(
             content, (str, bytes, bytearray)
         ):
-            pieces: list[str] = []
+            pieces: List[str] = []
             for item in content:
                 # Gemini responses often nest content under parts with "text" attributes.
                 if hasattr(item, "text"):
