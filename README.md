@@ -12,7 +12,12 @@ Douglas ships with a turnkey `douglas init` command that creates a ready-to-run 
 
 **Quickstart (Python template)**
 
+Run these commands from the directory where you want the new project folder (for example, your workspace root). Douglas will create the scaffolded app as a sibling directory. Make sure the `douglas` CLI is installed first—if the check below fails, follow the [Installation & setup](#installation--setup) steps before proceeding.
+
 ```bash
+# Confirm the Douglas CLI is available; fallback to installation instructions if not
+command -v douglas >/dev/null || { echo "Douglas CLI not found. See Installation & setup."; exit 1; }
+
 # Create a new project in ./my-app with the default per-feature push policy
 douglas init my-app --template python --non-interactive
 

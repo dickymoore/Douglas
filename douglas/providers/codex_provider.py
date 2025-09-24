@@ -6,7 +6,8 @@ import json
 import os
 import shutil
 import subprocess
-from typing import Optional
+from pathlib import Path
+from typing import Iterable, Optional
 
 from douglas.providers.openai_provider import OpenAIProvider
 
@@ -17,6 +18,8 @@ class CodexProvider(OpenAIProvider):
     DEFAULT_MODEL = "code-davinci-002"
     _CLI_EXECUTABLE_ENV = "CODEX_CLI_PATH"
     _CLI_DEFAULT_EXECUTABLE = "codex"
+    _CLI_AUTH_FILE_ENV = "CODEX_AUTH_FILE"
+    _CLI_HOME_ENV = "CODEX_HOME"
     _TOKEN_KEYS = ("token", "access_token", "api_key")
     _TOKEN_CHARACTERS = frozenset(
         "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
@@ -62,32 +65,105 @@ class CodexProvider(OpenAIProvider):
         if not cli_path:
             return None
 
-        try:
-            result = subprocess.run(
-                [cli_path, "auth", "token"],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except FileNotFoundError:
-            return None
-        except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive
-            message = exc.stderr.strip() or exc.stdout.strip()
-            if message:
-                print(
-                    "Warning: Failed to retrieve Codex token via CLI; "
-                    f"falling back to environment variables. Details: {message}"
-                )
-            return None
+        commands = ([cli_path, "auth", "token"], [cli_path, "token"])
+        failures: list[str] = []
 
-        token = self._parse_cli_token(result.stdout, result.stderr)
+        for command in commands:
+            try:
+                result = subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError:
+                return None
+            except subprocess.CalledProcessError as exc:  # pragma: no cover - defensive
+                message = self._summarise_cli_error(exc)
+                if message:
+                    failures.append(f"`{' '.join(command)}` ({message})")
+                continue
+
+            token = self._parse_cli_token(result.stdout, result.stderr)
+            if token:
+                return token
+
+        token = self._load_cli_cached_token()
         if token:
             return token
 
-        print(
-            "Warning: Codex CLI returned no token; falling back to environment "
-            "variables."
-        )
+        if failures:
+            last_failure = failures[-1]
+            print(
+                "Warning: Failed to retrieve Codex token via CLI; "
+                f"falling back to environment variables. Details: {last_failure}"
+            )
+        else:
+            print(
+                "Warning: Codex CLI returned no token; falling back to environment "
+                "variables."
+            )
+
+        return None
+
+    @staticmethod
+    def _summarise_cli_error(exc: subprocess.CalledProcessError) -> str:
+        output = (exc.stderr or exc.stdout or "").strip()
+        if not output:
+            return f"exit code {exc.returncode}"
+        first_line = output.splitlines()[0].strip()
+        return first_line or f"exit code {exc.returncode}"
+
+    def _load_cli_cached_token(self) -> Optional[str]:
+        for path in self._candidate_auth_paths():
+            try:
+                with path.open("r", encoding="utf-8") as handle:
+                    payload = json.load(handle)
+            except FileNotFoundError:
+                continue
+            except OSError:  # pragma: no cover - defensive
+                continue
+            except json.JSONDecodeError:  # pragma: no cover - defensive
+                continue
+
+            token = self._extract_token_from_mapping(payload)
+            if token:
+                return token
+
+        return None
+
+    def _candidate_auth_paths(self) -> Iterable[Path]:
+        override = os.getenv(self._CLI_AUTH_FILE_ENV)
+        if override:
+            yield Path(override).expanduser()
+
+        home_override = os.getenv(self._CLI_HOME_ENV)
+        if home_override:
+            yield Path(home_override).expanduser() / "auth.json"
+
+        yield Path.home() / ".codex" / "auth.json"
+
+    def _extract_token_from_mapping(self, payload: object) -> Optional[str]:
+        if not isinstance(payload, dict):
+            return None
+
+        token = self._extract_token_from_dict(payload)
+        if token:
+            return token
+
+        tokens_section = payload.get("tokens")
+        if isinstance(tokens_section, dict):
+            return self._extract_token_from_dict(tokens_section)
+
+        return None
+
+    def _extract_token_from_dict(self, values: dict) -> Optional[str]:
+        for key in self._TOKEN_KEYS:
+            value = values.get(key)
+            if isinstance(value, str):
+                candidate = value.strip()
+                if self._looks_like_token(candidate):
+                    return candidate
         return None
 
     @classmethod

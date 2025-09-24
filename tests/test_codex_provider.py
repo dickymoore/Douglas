@@ -1,3 +1,5 @@
+import json
+import subprocess
 import sys
 import types
 from pathlib import Path
@@ -70,6 +72,49 @@ def test_codex_provider_prefers_cli_token(monkeypatch):
 
     assert provider._cli_token == "token-from-cli"
     assert provider._api_key == "token-from-cli"
+
+
+def test_codex_provider_reads_cli_auth_file(monkeypatch, tmp_path, capsys):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    # Force detection of the CLI but make command execution fail
+    monkeypatch.setattr(
+        codex_provider.shutil, "which", lambda executable: "/usr/bin/codex"
+    )
+
+    def _failing_run(*args, **kwargs):
+        raise subprocess.CalledProcessError(
+            returncode=2,
+            cmd=args[0],
+            stderr="error: unexpected argument 'token' found\nUsage: codex ...",
+        )
+
+    monkeypatch.setattr(
+        codex_provider,
+        "subprocess",
+        types.SimpleNamespace(
+            run=_failing_run,
+            CalledProcessError=subprocess.CalledProcessError,
+        ),
+    )
+
+    codex_home = tmp_path / ".codex"
+    codex_home.mkdir()
+    auth_file = codex_home / "auth.json"
+    auth_file.write_text(
+        json.dumps({"tokens": {"access_token": "cli-file-token"}}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    provider = CodexProvider()
+
+    captured = capsys.readouterr()
+
+    assert provider._cli_token == "cli-file-token"
+    assert "unexpected argument" not in captured.out
+    assert "Usage" not in captured.out
 
 
 @pytest.mark.parametrize(
