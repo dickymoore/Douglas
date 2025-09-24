@@ -12,6 +12,10 @@ import typer
 import yaml
 
 from douglas.core import Douglas
+from douglas.providers.claude_code_provider import ClaudeCodeProvider
+from douglas.providers.codex_provider import CodexProvider
+from douglas.providers.copilot_provider import CopilotProvider
+from douglas.providers.gemini_provider import GeminiProvider
 from douglas.providers.openai_provider import OpenAIProvider
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
@@ -19,8 +23,27 @@ app = typer.Typer(help="AI-assisted development loop orchestrator")
 
 _DEFAULT_INIT_CONFIG = {
     "project": {"language": "python"},
-    "ai": {"provider": "openai", "model": OpenAIProvider.DEFAULT_MODEL},
+    "ai": {
+        "default_provider": "codex",
+        "providers": {
+            "codex": {
+                "provider": "codex",
+                "model": CodexProvider.DEFAULT_MODEL,
+            }
+        },
+        "prompt": "system_prompt.md",
+    },
     "history": {"max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH},
+}
+
+
+_PROVIDER_DEFAULT_MODELS = {
+    "codex": CodexProvider.DEFAULT_MODEL,
+    "openai": OpenAIProvider.DEFAULT_MODEL,
+    "claude_code": ClaudeCodeProvider.DEFAULT_MODEL,
+    "claude": ClaudeCodeProvider.DEFAULT_MODEL,
+    "gemini": GeminiProvider.DEFAULT_MODEL,
+    "copilot": CopilotProvider.DEFAULT_MODEL,
 }
 
 
@@ -46,6 +69,24 @@ def _load_default_init_config() -> dict:
 
     rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
     config = yaml.safe_load(rendered) or {}
+
+    ai_cfg = config.setdefault("ai", {}) if isinstance(config, dict) else {}
+    if isinstance(ai_cfg, dict):
+        providers_section = ai_cfg.get("providers")
+        if not isinstance(providers_section, dict):
+            provider_name = ai_cfg.pop("provider", None)
+            model_name = ai_cfg.pop("model", None)
+            providers_section = {}
+            ai_cfg["providers"] = providers_section
+            normalized_provider = (provider_name or "codex").strip().lower() or "codex"
+            entry = providers_section.setdefault(
+                normalized_provider,
+                {"provider": normalized_provider},
+            )
+            if model_name and "model" not in entry:
+                entry["model"] = model_name
+        if "default_provider" not in ai_cfg and providers_section:
+            ai_cfg["default_provider"] = next(iter(providers_section))
 
     history_cfg = config.setdefault("history", {})
     history_cfg.setdefault("max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH)
@@ -185,6 +226,16 @@ def init(
         "-t",
         help="Project template to scaffold (python or blank).",
     ),
+    provider: str = typer.Option(
+        "codex",
+        "--provider",
+        help="Default AI provider to configure for the generated project.",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        help="Model identifier to record for the default AI provider.",
+    ),
     push_policy: str = typer.Option(
         "per_feature",
         "--push-policy",
@@ -231,6 +282,10 @@ def init(
     push_policy_choice = push_policy.strip().lower()
     ci_choice = ci.strip().lower()
     license_choice = license_.strip().lower()
+    provider_choice = (provider or "codex").strip().lower() or "codex"
+    model_choice = model
+    if model_choice is None:
+        model_choice = _PROVIDER_DEFAULT_MODELS.get(provider_choice)
 
     orchestrator.init_project(
         target_dir,
@@ -242,6 +297,8 @@ def init(
         git=git,
         license_type=license_choice,
         non_interactive=non_interactive,
+        ai_provider=provider_choice,
+        ai_model=model_choice,
     )
 
 

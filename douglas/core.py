@@ -10,13 +10,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple, Union
 
 import yaml
 
 from douglas.cadence_manager import CadenceManager
 from douglas.controls import run_state as run_state_control
-from douglas.integrations.github import GitHub
+from douglas.integrations.repository import resolve_repository_integration
 from douglas.journal import agent_io
 from douglas.journal import questions as question_journal
 from douglas.pipelines import demo as demopipe
@@ -26,9 +26,28 @@ from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
 from douglas.pipelines import typecheck
 from douglas.providers.llm_provider import LLMProvider
+from douglas.providers.provider_registry import (
+    LLMProviderRegistry,
+    StaticLLMProviderRegistry,
+)
+from douglas.providers.claude_code_provider import ClaudeCodeProvider
+from douglas.providers.codex_provider import CodexProvider
+from douglas.providers.copilot_provider import CopilotProvider
+from douglas.providers.gemini_provider import GeminiProvider
+from douglas.providers.openai_provider import OpenAIProvider
 from douglas.sprint_manager import CadenceDecision, SprintManager
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "templates"
+
+
+_DEFAULT_PROVIDER_MODELS = {
+    "codex": CodexProvider.DEFAULT_MODEL,
+    "openai": OpenAIProvider.DEFAULT_MODEL,
+    "claude_code": ClaudeCodeProvider.DEFAULT_MODEL,
+    "claude": ClaudeCodeProvider.DEFAULT_MODEL,
+    "gemini": GeminiProvider.DEFAULT_MODEL,
+    "copilot": CopilotProvider.DEFAULT_MODEL,
+}
 
 
 @dataclass
@@ -110,7 +129,21 @@ class Douglas:
             self.config = deepcopy(source_config)
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get("project", {}).get("name", "")
+
+        vcs_config: Mapping[str, Any] = {}
+        raw_vcs = self.config.get("vcs")
+        if isinstance(raw_vcs, Mapping):
+            vcs_config = raw_vcs
+        vcs_provider_name = vcs_config.get("provider") if isinstance(vcs_config, Mapping) else None
+        self._repository_integration = resolve_repository_integration(vcs_provider_name)
+        self._repository_provider_name = getattr(
+            self._repository_integration, "name", "github"
+        ).strip().lower()
+
+        self._llm_registry = None
         self.lm_provider = self.create_llm_provider()
+        if getattr(self, "_llm_registry", None) is None:
+            self._llm_registry = StaticLLMProviderRegistry(self.lm_provider)
         self.sprint_manager = SprintManager(
             sprint_length_days=self._resolve_sprint_length()
         )
@@ -142,19 +175,74 @@ class Douglas:
 
     def create_llm_provider(self):
         ai_config = self.config.get("ai", {}) or {}
-        provider_name = ai_config.get("provider", "openai")
-        if provider_name is None:
-            provider_name = "openai"
-
-        normalized_name = str(provider_name).strip().lower()
-        provider_options = dict(ai_config)
-        provider_options.pop("provider", None)
+        if not isinstance(ai_config, Mapping):
+            ai_config = {}
 
         try:
-            return LLMProvider.create_provider(normalized_name, **provider_options)
+            registry = LLMProviderRegistry(ai_config)
         except ValueError as exc:
-            print(f"LLM provider '{provider_name}' not supported: {exc}")
+            print(f"LLM provider configuration invalid: {exc}")
             sys.exit(1)
+
+        self._llm_registry = registry
+        default_provider = registry.default_provider
+        if default_provider is None:  # pragma: no cover - defensive guard
+            print("No default LLM provider configured; exiting.")
+            sys.exit(1)
+        return default_provider
+
+    def _resolve_llm_provider(self, agent_label: str, step_name: str) -> LLMProvider:
+        registry = getattr(self, "_llm_registry", None)
+        if registry is None:
+            return self.lm_provider
+        try:
+            provider = registry.resolve(agent_label, step_name)
+        except Exception:  # pragma: no cover - defensive fallback
+            provider = None
+        return provider or self.lm_provider
+
+    def _infer_ai_provider_from_config(self, ai_config: Mapping[str, Any]) -> Optional[str]:
+        if not isinstance(ai_config, Mapping):
+            return None
+        candidate = ai_config.get("default_provider")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip().lower()
+        candidate = ai_config.get("provider")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip().lower()
+        providers_section = ai_config.get("providers")
+        if isinstance(providers_section, Mapping) and providers_section:
+            first_key = next(iter(providers_section))
+            if isinstance(first_key, str) and first_key.strip():
+                return first_key.strip().lower()
+        return None
+
+    def _infer_ai_model_from_config(
+        self, ai_config: Mapping[str, Any], provider: Optional[str]
+    ) -> Optional[str]:
+        if not isinstance(ai_config, Mapping):
+            return None
+        normalized = (provider or "").strip().lower()
+        providers_section = ai_config.get("providers")
+        if isinstance(providers_section, Mapping):
+            for key, spec in providers_section.items():
+                if not isinstance(spec, Mapping):
+                    continue
+                key_normalized = str(key).strip().lower()
+                provider_name = str(spec.get("provider", "")).strip().lower()
+                if key_normalized == normalized or provider_name == normalized:
+                    model = spec.get("model") or spec.get("model_name")
+                    if isinstance(model, str) and model.strip():
+                        return model.strip()
+        model = ai_config.get("model")
+        if isinstance(model, str) and model.strip():
+            return model.strip()
+        return None
+
+    def _default_model_for_provider(self, provider: Optional[str]) -> Optional[str]:
+        if not provider:
+            return None
+        return _DEFAULT_PROVIDER_MODELS.get(provider.strip().lower())
 
     def _resolve_sprint_length(self) -> Optional[int]:
         sprint_config = self.config.get("sprint", {}) or {}
@@ -905,7 +993,7 @@ class Douglas:
                 "project_root": self.project_root,
                 "config": self.config,
                 "sprint_manager": self.sprint_manager,
-                "llm": self.lm_provider,
+                "llm": self._resolve_llm_provider("ScrumMaster", "retro"),
                 "loop_outcomes": dict(self._loop_outcomes),
             }
             try:
@@ -1533,8 +1621,16 @@ class Douglas:
         title, body = self._build_pr_content()
         base_branch = self.config.get("vcs", {}).get("default_branch", "main")
         head_branch = self._get_current_branch()
+        integration = getattr(self, "_repository_integration", None)
+        if integration is None:
+            integration = resolve_repository_integration(None)
+            self._repository_integration = integration
+            self._repository_provider_name = getattr(
+                integration, "name", "github"
+            ).strip().lower()
+
         try:
-            metadata = GitHub.create_pull_request(
+            metadata = integration.create_pull_request(
                 title=title,
                 body=body,
                 base=base_branch,
@@ -1618,6 +1714,25 @@ class Douglas:
             return None
 
         self._ci_monitoring_triggered = True
+
+        if not getattr(self._repository_integration, "supports_ci_monitoring", False):
+            print(
+                "CI monitoring is only implemented for GitHub repositories at this time."
+            )
+            self._ci_status = None
+            self._record_agent_summary(
+                "DevOps",
+                "ci",
+                "CI monitoring skipped because the configured repository provider "
+                "does not support automated checks.",
+                {
+                    "status": "skipped",
+                    "reason": "unsupported_provider",
+                    "provider": self._repository_provider_name,
+                    "source_step": source_label,
+                },
+            )
+            return None
 
         if shutil.which("gh") is None:
             print("GitHub CLI not available; skipping CI monitoring.")
@@ -1820,6 +1935,8 @@ class Douglas:
         return None
 
     def _download_ci_logs(self, run_id: Optional[int]) -> Optional[Path]:
+        if not getattr(self._repository_integration, "supports_ci_monitoring", False):
+            return None
         if not run_id:
             return None
         if shutil.which("gh") is None:
@@ -1976,8 +2093,9 @@ class Douglas:
             return
 
         print("Invoking language model to propose code changes...")
+        provider = self._resolve_llm_provider("Developer", "generate")
         try:
-            llm_output = self.lm_provider.generate_code(prompt)
+            llm_output = provider.generate_code(prompt)
         except Exception as exc:
             print(f"Error while invoking language model: {exc}")
             self._record_agent_summary(
@@ -2040,8 +2158,9 @@ class Douglas:
             return
 
         print("Requesting language model review of recent changes...")
+        provider = self._resolve_llm_provider("Developer", "review")
         try:
-            feedback = self.lm_provider.generate_code(prompt)
+            feedback = provider.generate_code(prompt)
         except Exception as exc:
             print(f"Error while invoking language model for review: {exc}")
             self._record_agent_summary(
@@ -2727,8 +2846,9 @@ class Douglas:
         if not prompt:
             return self.DEFAULT_COMMIT_MESSAGE
 
+        provider = self._resolve_llm_provider("Developer", "commit")
         try:
-            response = self.lm_provider.generate_code(prompt)
+            response = provider.generate_code(prompt)
         except Exception as exc:
             print(
                 f"Warning: Unable to generate commit message via language model: {exc}"
@@ -2855,6 +2975,8 @@ class Douglas:
         *,
         name: Optional[str] = None,
         template: str = "python",
+        ai_provider: Optional[str] = None,
+        ai_model: Optional[str] = None,
         push_policy: Optional[str] = None,
         sprint_length: Optional[int] = None,
         ci: str = "github",
@@ -2950,8 +3072,17 @@ class Douglas:
         }
 
         ai_config = self.config.get("ai", {}) if isinstance(self.config, dict) else {}
-        ai_provider = ai_config.get("provider", "openai")
-        ai_model = ai_config.get("model", "gpt-4")
+        if not isinstance(ai_config, Mapping):
+            ai_config = {}
+
+        provider_choice = (
+            (ai_provider or self._infer_ai_provider_from_config(ai_config) or "codex")
+            .strip()
+            .lower()
+        )
+        model_choice = ai_model or self._infer_ai_model_from_config(ai_config, provider_choice)
+        if not model_choice:
+            model_choice = self._default_model_for_provider(provider_choice)
 
         loop_steps = [
             {"name": "generate"},
@@ -2963,16 +3094,22 @@ class Douglas:
             {"name": "pr"},
         ]
 
+        ai_section: Dict[str, Any] = {
+            "default_provider": provider_choice,
+            "providers": {
+                provider_choice: {"provider": provider_choice},
+            },
+        }
+        if model_choice:
+            ai_section["providers"][provider_choice]["model"] = model_choice
+
         config_template: Dict[str, Any] = {
             "project": {
                 "name": scaffold_name,
                 "description": f"Project scaffolded by Douglas for {scaffold_name}.",
                 "language": language,
             },
-            "ai": {
-                "provider": ai_provider,
-                "model": ai_model,
-            },
+            "ai": ai_section,
             "loop": {
                 "steps": loop_steps,
                 "exit_conditions": ["ci_pass"],

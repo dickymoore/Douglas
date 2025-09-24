@@ -2,7 +2,7 @@
 
 Douglas is a developer-lifecycle companion that automates an AI-assisted build, test, review, and release loop for software teams. It reads a configuration file, orchestrates lint/type/test/security/demo/retro pipelines, records outcomes for each agile role, and coordinates release policies and CI monitoring.
 
-> **Status:** Douglas is not yet published on PyPI. Install from source as shown below. The bundled OpenAI provider talks to the OpenAI API when credentials are configured and degrades gracefully to a local stub otherwise.
+> **Status:** Douglas is not yet published on PyPI. Install from source as shown below. Codex is configured as the default provider and Douglas also recognises OpenAI chat models, Claude Code, Google Gemini, and a stubbed GitHub Copilot integration—each degrading gracefully to a local stub whenever credentials or SDKs are unavailable.
 
 ## Two Ways to Use Douglas
 
@@ -17,7 +17,7 @@ Douglas ships with a turnkey `douglas init` command that creates a ready-to-run 
 douglas init my-app --template python --non-interactive
 
 cd my-app
-cp .env.example .env  # set OPENAI_API_KEY before running the loop
+cp .env.example .env  # set OPENAI_API_KEY (used for Codex) before running the loop
 
 # Prepare a virtual environment and install the scaffolded dev dependencies
 make venv
@@ -35,6 +35,7 @@ Additional options let you customise the scaffold:
 - `--git` initialises a Git repository and commits the scaffolded files.
 - `--ci github` adds a GitHub Actions workflow that runs `pytest -q`.
 - `--license mit` drops in an MIT licence. `--template blank` gives you a minimal README, `.env.example`, `.gitignore`, and configuration file for non-Python stacks.
+- `--provider codex|claude_code|gemini|openai|copilot` records the default AI provider (Codex by default). Pair it with `--model` to set a specific model identifier in the generated configuration.
 
 ### 2. Dogfooding the Douglas repo
 
@@ -115,14 +116,20 @@ douglas init my-new-service
 douglas run --config path/to/douglas.yaml
 ```
 
-### Configure OpenAI access
+### Configure AI access
 
-Douglas ships with an OpenAI-backed provider. To enable real model output:
+Douglas ships with a multi-provider registry. Codex is the default and shares credentials with the OpenAI SDK:
 
 1. Install the OpenAI SDK (`pip install openai`) or use the optional extra (`pip install -e .[openai]`).
-2. Export `OPENAI_API_KEY`. You can also set `OPENAI_MODEL` to override the default (`gpt-4o-mini`) and `OPENAI_BASE_URL`/`OPENAI_API_BASE` for compatible endpoints.
+2. Export `OPENAI_API_KEY`. You can also set `OPENAI_MODEL` (or `OPENAI_CODEX_MODEL`) plus `OPENAI_BASE_URL`/`OPENAI_API_BASE` for compatible endpoints.
 
-If the API key or SDK is missing, Douglas will continue to run but the provider falls back to a local stub that logs prompts instead of contacting the API.
+Additional providers honour their respective environment variables when available:
+
+- **Claude Code** – requires `anthropic` (`pip install anthropic`) and `ANTHROPIC_API_KEY`.
+- **Google Gemini** – requires `google-generativeai` (`pip install google-generativeai`) and `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+- **GitHub Copilot** – currently stubbed; configure `COPILOT_TOKEN`/`GITHUB_TOKEN` to silence warnings.
+
+If a provider-specific SDK or credential is missing, Douglas continues to run but falls back to deterministic stub output so development flows remain testable offline.
 
 ### Running the orchestrator without installing
 
@@ -143,7 +150,7 @@ The commands above defer to the `Douglas` class under the hood, so you can also 
 Douglas is entirely driven by a `douglas.yaml` file located at your project root. A canonical template lives in [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl) and is used when `init_project` scaffolds a new repository. Key sections include:
 
 - `project`: metadata used in prompts (name, description, language, license).
-- `ai`: provider name, model identifier, and the path to a system prompt file used when constructing LLM prompts. [`douglas/core.py`](douglas/core.py)
+- `ai`: declares the default provider, the available provider configurations (Codex/OpenAI/Claude Code/Gemini/Copilot), optional per-role `assignments`, and the path to a system prompt file used when constructing LLM prompts. [`douglas/core.py`](douglas/core.py)
 - `cadence`: role/activity cadence preferences consulted by the cadence manager.[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
 - `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations.[`douglas/core.py`](douglas/core.py)
 - `push_policy`: governs when push/PR steps fire (`per_feature`, `per_feature_complete`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
@@ -161,7 +168,7 @@ The central `Douglas` class reads the configuration, constructs providers, and e
 Core capabilities:
 
 - **Lifecycle control** – `run_loop()` normalizes configured steps, enforces iteration limits, honours exit conditions (`tests_pass`, `ci_pass`, `sprint_demo_complete`, etc.), and respects soft/hard stop directives from a run-state file.[`douglas/core.py`](douglas/core.py)
-- **Provider bootstrap** – `create_llm_provider()` instantiates the configured LLM provider (OpenAI with a graceful offline fallback).[`douglas/core.py`](douglas/core.py)
+- **Provider bootstrap** – `create_llm_provider()` now builds an `LLMProviderRegistry`, wiring up Codex by default while honouring additional providers (OpenAI, Claude Code, Gemini, Copilot) and recording graceful offline fallbacks.[`douglas/core.py`](douglas/core.py)
 - **Sprint & cadence integration** – `SprintManager` tracks sprint day counters, completed features/bugs/epics, and commit counts, while `CadenceManager` decides whether each step should execute this iteration.[`douglas/core.py`](douglas/core.py)[`douglas/sprint_manager.py`](douglas/sprint_manager.py)[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
 - **Run-state enforcement** – `_check_run_state()` reads `user-portal/run-state.txt` (configurable) so that humans can request soft or hard stops mid-run.[`douglas/core.py`](douglas/core.py)[`douglas/controls/run_state.py`](douglas/controls/run_state.py)
 - **Question handling** – `_refresh_question_state()` looks for unanswered questions in the user portal and defers role steps until blocking items have been answered and archived.[`douglas/core.py`](douglas/core.py)[`douglas/journal/questions.py`](douglas/journal/questions.py)
@@ -173,10 +180,10 @@ Core capabilities:
   - `retro` and `demo` orchestrate the sprint retrospective and demo pack generation, writing outputs beneath `ai-inbox/sprints/<sprint>/` and `demos/<sprint>/` while logging events.[`douglas/core.py`](douglas/core.py)[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
   - `commit` autogenerates a Conventional Commit message via the LLM (with `_generate_commit_message()`), stages outstanding changes, and records the resulting commit.[`douglas/core.py`](douglas/core.py)
   - `push` performs local guard checks (configurable commands such as `black --check`), attempts `git push` with automatic fast-forward pulls, records sprint cadence consumption, and may trigger CI monitoring.[`douglas/core.py`](douglas/core.py)
-  - `pr` uses the GitHub CLI to open pull requests and subsequently monitor CI runs.[`douglas/core.py`](douglas/core.py)
+  - `pr` delegates to a repository integration—GitHub via the `gh` CLI by default, with informative stubs for GitLab and Azure DevOps—and monitors CI runs when GitHub is active.[`douglas/core.py`](douglas/core.py)
   - Unknown steps log a reminder but are marked executed so cadence can advance.[`douglas/core.py`](douglas/core.py)
 - **Local guard checks** – `_run_local_checks()` discovers configured commands (or defaults like `black --check`, `bandit`, `semgrep` when available), runs them, and blocks release steps when they fail while writing history entries and bug tickets.[`douglas/core.py`](douglas/core.py)
-- **CI monitoring** – `_monitor_ci()` polls GitHub Actions via `gh run list/view`, downloads logs, and raises handoffs/bug tickets when runs fail.[`douglas/core.py`](douglas/core.py)
+- **CI monitoring** – `_monitor_ci()` polls GitHub Actions via `gh run list/view` when GitHub is the configured provider, downloading logs and raising handoffs/bug tickets when runs fail. Other providers record a skipped status so humans can follow up manually.[`douglas/core.py`](douglas/core.py)
 - **Bug ticketing** – `_create_bug_ticket()` appends Markdown entries under `ai-inbox/bugs.md` with log excerpts and commit metadata for any failed step.[`douglas/core.py`](douglas/core.py)
 - **History logging** – `write_history()` persists JSONL events in `ai-inbox/history.jsonl`, ensuring the directory is git-ignored, and most operations call `_write_history_event()` for traceability.[`douglas/core.py`](douglas/core.py)
 - **Summaries & handoffs** – `_record_agent_summary()` and `_raise_agent_handoff()` write markdown summaries/handoffs for each agile role beneath `ai-inbox/sprints/<sprint>/roles/`.[`douglas/core.py`](douglas/core.py)[`douglas/journal/agent_io.py`](douglas/journal/agent_io.py)
@@ -216,7 +223,10 @@ Each pipeline module focuses on a single concern:
 The provider abstraction keeps Douglas model-agnostic:
 
 - `LLMProvider` is a simple interface with a `generate_code(prompt)` method and a `create_provider()` factory.[`douglas/providers/llm_provider.py`](douglas/providers/llm_provider.py)
+  - `LLMProviderRegistry` parses `ai.default_provider`, `ai.providers`, and optional per-role `assignments` to deliver the right provider for each step.[`douglas/providers/provider_registry.py`](douglas/providers/provider_registry.py)
+  - `CodexProvider` builds on the OpenAI transport with sensible defaults for the Codex models while degrading to a stub when credentials are missing.[`douglas/providers/codex_provider.py`](douglas/providers/codex_provider.py)
   - `OpenAIProvider` initialises the OpenAI SDK, honours `ai.model` overrides (or `OPENAI_MODEL`) plus optional `ai.base_url`/`ai.api_key` settings, and returns real model output when credentials and the SDK are available—falling back to a local stub otherwise.[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
+  - `ClaudeCodeProvider`, `GeminiProvider`, and `CopilotProvider` handle Anthropic, Google, and GitHub Copilot integrations respectively, issuing warnings and deterministic placeholder output whenever SDKs or API keys are absent.[`douglas/providers/claude_code_provider.py`](douglas/providers/claude_code_provider.py) [`douglas/providers/gemini_provider.py`](douglas/providers/gemini_provider.py) [`douglas/providers/copilot_provider.py`](douglas/providers/copilot_provider.py)
 
 ### Templates, bootstrapping & examples
 
