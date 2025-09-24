@@ -1,11 +1,32 @@
 from pathlib import Path
+import sys
 
 import yaml
 from typer.testing import CliRunner
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from douglas import cli as cli_module
 from douglas.cli import app
 from douglas.core import Douglas
+
+
+def test_load_default_init_config_uses_repo_template(monkeypatch):
+    calls = []
+
+    def _record_secho(*args, **kwargs):
+        calls.append((args, kwargs))
+
+    monkeypatch.setattr(cli_module.typer, "secho", _record_secho)
+
+    config = cli_module._load_default_init_config()
+
+    developer_cadence = (
+        config.get("cadence", {}).get("Developer", {}).get("development")
+    )
+
+    assert developer_cadence == "daily"
+    assert calls == []
 
 
 def test_cli_init_without_config(monkeypatch, tmp_path):
