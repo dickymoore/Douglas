@@ -17,7 +17,10 @@ Douglas ships with a turnkey `douglas init` command that creates a ready-to-run 
 douglas init my-app --template python --non-interactive
 
 cd my-app
-cp .env.example .env  # set OPENAI_API_KEY (used for Codex) before running the loop
+codex login  # authenticate via the Codex CLI in your browser (default provider credentials)
+
+# Optional: copy the example env file if you prefer direct API tokens
+cp .env.example .env
 
 # Prepare a virtual environment and install the scaffolded dev dependencies
 make venv
@@ -118,10 +121,12 @@ douglas run --config path/to/douglas.yaml
 
 ### Configure AI access
 
-Douglas ships with a multi-provider registry. Codex is the default and shares credentials with the OpenAI SDK:
+Douglas ships with a multi-provider registry. The Codex CLI is the default authentication path:
 
-1. Install the OpenAI SDK (`pip install openai`) or use the optional extra (`pip install -e .[openai]`).
-2. Export `OPENAI_API_KEY`. You can also set `OPENAI_MODEL` (or `OPENAI_CODEX_MODEL`) plus `OPENAI_BASE_URL`/`OPENAI_API_BASE` for compatible endpoints.
+1. Install the Codex CLI and run `codex login` to authenticate via your browser. Douglas will reuse the CLI session automatically.
+2. If you prefer to skip the CLI, install the OpenAI SDK (`pip install openai` or `pip install -e .[openai]`) and export `OPENAI_API_KEY`. Optional knobs like `OPENAI_MODEL`, `OPENAI_CODEX_MODEL`, and `OPENAI_BASE_URL`/`OPENAI_API_BASE` remain supported.
+
+You can override the CLI executable path with `CODEX_CLI_PATH` when needed.
 
 Additional providers honour their respective environment variables when available:
 
@@ -302,7 +307,8 @@ This walkthrough shows how to exercise Douglas on a fresh repository without dep
    - Copy `templates/douglas.yaml.tpl` and adapt it to your repo (at minimum set the project name and ensure the `paths.app_src` and `paths.tests` entries match your layout).
 
 4. **Configure the LLM provider**
-   - Export `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` or `OPENAI_BASE_URL`) to enable the bundled OpenAI integration.
+   - Authenticate with the Codex CLI (`codex login`) – this opens a browser flow and stores credentials that Douglas consumes automatically. Set `CODEX_CLI_PATH` if the executable lives outside your `PATH`.
+   - Alternatively, export `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` or `OPENAI_BASE_URL`) to drive the OpenAI transport directly instead of the CLI-managed credentials.
    - For offline experimentation you can monkeypatch `Douglas.create_llm_provider` to return a simple object with a `generate_code(prompt)` method that prints the prompt and returns deterministic output (the test suite demonstrates this pattern). The built-in provider will also fall back to a local stub whenever credentials or the SDK are unavailable.
 
 5. **Run the development loop**
