@@ -11,7 +11,7 @@ from typing import Callable, Optional
 import typer
 import yaml
 
-from douglas.core import Douglas
+from douglas.core import Douglas, TEMPLATE_ROOT
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
 from douglas.providers.copilot_provider import CopilotProvider
@@ -50,19 +50,41 @@ _PROVIDER_DEFAULT_MODELS = {
 def _load_default_init_config() -> dict:
     """Load the seed configuration used when bootstrapping a new project."""
 
-    template_path = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+    template_candidates = []
     try:
-        template_text = template_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
+        package_template = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+    except ModuleNotFoundError:
+        package_template = None  # pragma: no cover - defensive guard
+    else:
+        template_candidates.append(package_template)
+
+    template_candidates.append(TEMPLATE_ROOT / "douglas.yaml.tpl")
+
+    template_text = None
+    last_missing_error: Optional[FileNotFoundError] = None
+    for candidate in template_candidates:
+        try:
+            template_text = candidate.read_text(encoding="utf-8")
+        except FileNotFoundError as exc:
+            last_missing_error = exc
+            continue
+        except OSError as exc:
+            typer.secho(
+                f"Unable to read template file '{candidate}': {exc}. Using fallback defaults.",
+                fg=typer.colors.YELLOW,
+            )
+            return deepcopy(_DEFAULT_INIT_CONFIG)
+
+        if template_text is not None:
+            break
+
+    if template_text is None:
+        if last_missing_error is not None:
+            missing_location = last_missing_error.filename or "douglas.yaml.tpl"
+        else:
+            missing_location = "douglas.yaml.tpl"
         typer.secho(
-            "Template file 'douglas.yaml.tpl' not found in the Douglas package; "
-            "falling back to the built-in defaults.",
-            fg=typer.colors.YELLOW,
-        )
-        return deepcopy(_DEFAULT_INIT_CONFIG)
-    except OSError as exc:
-        typer.secho(
-            f"Unable to read template file '{template_path}': {exc}. Using fallback defaults.",
+            f"Template file '{missing_location}' not found; falling back to the built-in defaults.",
             fg=typer.colors.YELLOW,
         )
         return deepcopy(_DEFAULT_INIT_CONFIG)
