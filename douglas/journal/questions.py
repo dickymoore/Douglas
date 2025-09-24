@@ -180,7 +180,7 @@ def archive_question(question: Question) -> Path:
     try:
         question.path.replace(destination)
     except OSError:
-        shutil.move(str(question.path), str(destination))
+        shutil.move(question.path, destination)
 
     sprint_prefix = _resolve_sprint_prefix(question.config)
     _log_question_to_summary(
