@@ -1,14 +1,11 @@
-import sys
 from pathlib import Path
 
 import yaml
 from typer.testing import CliRunner
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from douglas import cli as cli_module  # noqa: E402
-from douglas.cli import app  # noqa: E402
-from douglas.core import Douglas  # noqa: E402
+from douglas import cli as cli_module
+from douglas.cli import app
+from douglas.core import Douglas
 
 
 def test_cli_init_without_config(monkeypatch, tmp_path):

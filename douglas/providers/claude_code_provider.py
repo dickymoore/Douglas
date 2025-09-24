@@ -29,9 +29,7 @@ class ClaudeCodeProvider(LLMProvider):
             or self.DEFAULT_MODEL
         )
         self._api_key = (
-            api_key
-            or os.getenv("ANTHROPIC_API_KEY")
-            or os.getenv("CLAUDE_API_KEY")
+            api_key or os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
         )
         self._max_tokens = max_tokens or 4096
         self._client: Optional[Any] = None
@@ -132,6 +130,8 @@ class ClaudeCodeProvider(LLMProvider):
         return ""
 
     def _fallback(self, prompt: str) -> str:  # pragma: no cover - log output only
-        print("[ClaudeCodeProvider] Falling back to placeholder output. Prompt preview:")
+        print(
+            "[ClaudeCodeProvider] Falling back to placeholder output. Prompt preview:"
+        )
         print(prompt[:200])
         return "# Claude Code API unavailable; no code generated."

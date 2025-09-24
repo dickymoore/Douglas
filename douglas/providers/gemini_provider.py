@@ -29,9 +29,7 @@ class GeminiProvider(LLMProvider):
             or self.DEFAULT_MODEL
         )
         self._api_key = (
-            api_key
-            or os.getenv("GEMINI_API_KEY")
-            or os.getenv("GOOGLE_API_KEY")
+            api_key or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         )
         self._client: Optional[Any] = client
 

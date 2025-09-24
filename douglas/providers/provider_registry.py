@@ -79,7 +79,13 @@ class LLMProviderRegistry:
                 key: value
                 for key, value in config.items()
                 if key
-                not in {"provider", "providers", "default_provider", "assignments", "prompt"}
+                not in {
+                    "provider",
+                    "providers",
+                    "default_provider",
+                    "assignments",
+                    "prompt",
+                }
             }
             canonical = self._lookup_or_create(top_level_provider, sanitized)
             if canonical:
@@ -156,7 +162,9 @@ class LLMProviderRegistry:
             if not provider_name:
                 return None
             options = {
-                key: value for key, value in reference.items() if key not in {"provider", "type"}
+                key: value
+                for key, value in reference.items()
+                if key not in {"provider", "type"}
             }
             return self._lookup_or_create(provider_name, options)
         if isinstance(reference, str):

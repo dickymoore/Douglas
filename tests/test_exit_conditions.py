@@ -1,13 +1,9 @@
 import subprocess
-import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import List, Optional
 
 import yaml
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from types import SimpleNamespace
 
 from douglas.core import Douglas
 from douglas.pipelines import demo as demo_pipeline

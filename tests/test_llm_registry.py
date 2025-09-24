@@ -1,9 +1,3 @@
-from pathlib import Path
-
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
 from douglas.providers.gemini_provider import GeminiProvider

@@ -24,9 +24,7 @@ class CopilotProvider(LLMProvider):
         model_name: Optional[str] = None,
         token: Optional[str] = None,
     ) -> None:
-        self.model = (
-            model_name or os.getenv("COPILOT_MODEL") or self.DEFAULT_MODEL
-        )
+        self.model = model_name or os.getenv("COPILOT_MODEL") or self.DEFAULT_MODEL
         self._token = token or os.getenv("COPILOT_TOKEN") or os.getenv("GITHUB_TOKEN")
         if not self._token:
             print(
@@ -37,6 +35,8 @@ class CopilotProvider(LLMProvider):
         return self._fallback(prompt)
 
     def _fallback(self, prompt: str) -> str:  # pragma: no cover - log output only
-        print("[CopilotProvider] GitHub Copilot integration is stubbed. Prompt preview:")
+        print(
+            "[CopilotProvider] GitHub Copilot integration is stubbed. Prompt preview:"
+        )
         print(prompt[:200])
         return "# GitHub Copilot API unavailable; no code generated."

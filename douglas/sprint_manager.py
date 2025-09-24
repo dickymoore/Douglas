@@ -228,9 +228,7 @@ class SprintManager:
         if identifier:
             self.completed_features.add(str(identifier))
 
-    def mark_feature_ready_for_release(
-        self, identifier: Optional[str] = None
-    ) -> None:
+    def mark_feature_ready_for_release(self, identifier: Optional[str] = None) -> None:
         self.pending_events["feature_complete"] += 1
         if identifier:
             self.release_ready_features.add(str(identifier))
@@ -288,9 +286,7 @@ class SprintManager:
             )
 
         if policy == "per_feature_complete":
-            available = self._available_event_for_consumer(
-                "feature_complete", "push"
-            )
+            available = self._available_event_for_consumer("feature_complete", "push")
             if available > 0:
                 plural = "s" if available != 1 else ""
                 return CadenceDecision(
@@ -371,9 +367,7 @@ class SprintManager:
             )
 
         if policy == "per_feature_complete":
-            available = self._available_event_for_consumer(
-                "feature_complete", "pr"
-            )
+            available = self._available_event_for_consumer("feature_complete", "pr")
             if available > 0:
                 plural = "s" if available != 1 else ""
                 return CadenceDecision(

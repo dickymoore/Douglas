@@ -78,8 +78,7 @@ class DouglasSystemExit(SystemExit):
 
 
 TLS_ERROR_PATTERN = re.compile(
-    r"\btls\b[^\n]*(error|failed|failure|handshake|protocol)",
-    re.IGNORECASE
+    r"\btls\b[^\n]*(error|failed|failure|handshake|protocol)", re.IGNORECASE
 )
 
 
@@ -134,11 +133,13 @@ class Douglas:
         raw_vcs = self.config.get("vcs")
         if isinstance(raw_vcs, Mapping):
             vcs_config = raw_vcs
-        vcs_provider_name = vcs_config.get("provider") if isinstance(vcs_config, Mapping) else None
+        vcs_provider_name = (
+            vcs_config.get("provider") if isinstance(vcs_config, Mapping) else None
+        )
         self._repository_integration = resolve_repository_integration(vcs_provider_name)
-        self._repository_provider_name = getattr(
-            self._repository_integration, "name", "github"
-        ).strip().lower()
+        self._repository_provider_name = (
+            getattr(self._repository_integration, "name", "github").strip().lower()
+        )
 
         self._llm_registry = None
         self.lm_provider = self.create_llm_provider()
@@ -201,7 +202,9 @@ class Douglas:
             provider = None
         return provider or self.lm_provider
 
-    def _infer_ai_provider_from_config(self, ai_config: Mapping[str, Any]) -> Optional[str]:
+    def _infer_ai_provider_from_config(
+        self, ai_config: Mapping[str, Any]
+    ) -> Optional[str]:
         if not isinstance(ai_config, Mapping):
             return None
         candidate = ai_config.get("default_provider")
@@ -1625,9 +1628,9 @@ class Douglas:
         if integration is None:
             integration = resolve_repository_integration(None)
             self._repository_integration = integration
-            self._repository_provider_name = getattr(
-                integration, "name", "github"
-            ).strip().lower()
+            self._repository_provider_name = (
+                getattr(integration, "name", "github").strip().lower()
+            )
 
         try:
             metadata = integration.create_pull_request(
@@ -2966,9 +2969,6 @@ class Douglas:
             f"Missing initialization template: {missing_path}"
         ) from last_error
 
-
-
-
     def init_project(
         self,
         target: Union[str, Path] = ".",
@@ -3007,9 +3007,7 @@ class Douglas:
             scaffold_name = resolved_name or "DouglasProject"
         normalized_template = (template or "python").strip().lower()
         if normalized_template not in {"python", "blank"}:
-            print(
-                f"Warning: Unsupported template '{template}'; defaulting to python."
-            )
+            print(f"Warning: Unsupported template '{template}'; defaulting to python.")
             normalized_template = "python"
 
         policy_candidate = (push_policy or "per_feature").strip().lower()
@@ -3038,9 +3036,7 @@ class Douglas:
 
         license_choice = (license_type or "none").strip().lower()
         if license_choice not in {"none", "mit"}:
-            print(
-                f"Warning: Unsupported license '{license_type}'; defaulting to none."
-            )
+            print(f"Warning: Unsupported license '{license_type}'; defaulting to none.")
             license_choice = "none"
 
         configured_language = (
@@ -3080,7 +3076,9 @@ class Douglas:
             .strip()
             .lower()
         )
-        model_choice = ai_model or self._infer_ai_model_from_config(ai_config, provider_choice)
+        model_choice = ai_model or self._infer_ai_model_from_config(
+            ai_config, provider_choice
+        )
         if not model_choice:
             model_choice = self._default_model_for_provider(provider_choice)
 
@@ -3200,7 +3198,10 @@ class Douglas:
             if not git_dir.exists():
                 try:
                     subprocess.run(
-                        ["git", "init"], cwd=target_path, check=True, capture_output=True
+                        ["git", "init"],
+                        cwd=target_path,
+                        check=True,
+                        capture_output=True,
                     )
                     subprocess.run(
                         ["git", "add", "."],
