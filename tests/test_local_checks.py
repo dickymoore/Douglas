@@ -243,6 +243,78 @@ def test_semgrep_network_failure_is_skipped(monkeypatch, tmp_path):
     assert "local_checks_skip" in events
 
 
+def test_semgrep_forbidden_failure_is_skipped(monkeypatch, tmp_path):
+    config_path = _init_repo(tmp_path, steps=[{"name": "push"}], exit_conditions=[])
+
+    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: StaticProvider())
+    douglas = Douglas(config_path)
+
+    semgrep_command = ["semgrep", "--config", "auto"]
+    monkeypatch.setattr(
+        Douglas, "_discover_local_check_commands", lambda self: [semgrep_command]
+    )
+
+    _patch_subprocess_for_command(
+        monkeypatch,
+        semgrep_command,
+        returncode=2,
+        stderr=(
+            "HTTPError: 403 Client Error: Forbidden for url: "
+            "https://semgrep.dev/api/public/rules"
+        ),
+    )
+
+    success, logs = douglas._run_local_checks()
+
+    assert success is True
+    assert "Semgrep command failed" in logs
+
+    history_path = tmp_path / "ai-inbox" / "history.jsonl"
+    assert history_path.exists()
+    events = [
+        json.loads(line)["event"]
+        for line in history_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert "local_checks_skip" in events
+
+
+def test_semgrep_login_required_failure_is_skipped(monkeypatch, tmp_path):
+    config_path = _init_repo(tmp_path, steps=[{"name": "push"}], exit_conditions=[])
+
+    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: StaticProvider())
+    douglas = Douglas(config_path)
+
+    semgrep_command = ["semgrep", "--config", "auto"]
+    monkeypatch.setattr(
+        Douglas, "_discover_local_check_commands", lambda self: [semgrep_command]
+    )
+
+    _patch_subprocess_for_command(
+        monkeypatch,
+        semgrep_command,
+        returncode=2,
+        stderr=(
+            "error: --config auto requires authentication. Run 'semgrep login' or "
+            "set the SEMGREP_APP_TOKEN environment variable."
+        ),
+    )
+
+    success, logs = douglas._run_local_checks()
+
+    assert success is True
+    assert "semgrep login" in logs.lower()
+
+    history_path = tmp_path / "ai-inbox" / "history.jsonl"
+    assert history_path.exists()
+    events = [
+        json.loads(line)["event"]
+        for line in history_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert "local_checks_skip" in events
+
+
 def test_log_excerpt_limit_respects_configuration(monkeypatch, tmp_path):
     config_path = _init_repo(tmp_path, steps=[{"name": "push"}], exit_conditions=[])
 

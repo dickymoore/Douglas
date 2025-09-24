@@ -1374,11 +1374,25 @@ class Douglas:
             "offline",
             "ssl error",
             "certificate verify failed",
+            "timeout",
+            "timed out",
+            "http error",
+            "forbidden",
+            "unauthorized",
         ]
         if any(marker in combined_output_lower for marker in network_markers):
             return True
 
-        return bool(TLS_ERROR_PATTERN.search(combined_output))
+        if TLS_ERROR_PATTERN.search(combined_output):
+            return True
+
+        credential_markers = [
+            "semgrep login",
+            "semgrep_app_token",
+            "set an app token",
+            "set the semgrep app token",
+        ]
+        return any(marker in combined_output_lower for marker in credential_markers)
 
     def _format_command_output(
         self,
