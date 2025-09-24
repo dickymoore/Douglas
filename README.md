@@ -1,27 +1,393 @@
 # Douglas
 
-This project was bootstrapped with [Douglas](https://github.com/dickymoore/Douglas).
+Douglas is a developer-lifecycle companion that automates an AI-assisted build, test, review, and release loop for software teams. It reads a configuration file, orchestrates lint/type/test/security/demo/retro pipelines, records outcomes for each agile role, and coordinates release policies and CI monitoring.
 
-## Quickstart
+> **Status:** Douglas is not yet published on PyPI. Install from source as shown below. Codex is configured as the default provider and Douglas also recognises OpenAI chat models, Claude Code, Google Gemini, and a stubbed GitHub Copilot integration—each degrading gracefully to a local stub whenever credentials or SDKs are unavailable.
 
-1. Verify the Codex CLI is up to date (`codex --version` should report `codex-cli 0.40.0` or newer); upgrade with `pip install -U codex-cli` if needed.
-2. Run `codex login` to authenticate via your browser (Codex is the default provider), then optionally confirm the session with `codex exec "echo Codex CLI ready"`.
-3. (Optional) Copy `.env.example` to `.env` if you plan to provide tokens manually.
-4. Create a virtual environment with `make venv`.
-5. Run the tests with `make test`.
-6. Update `system_prompt.md` with the product vision and early hypotheses; Sprint Zero planning will read it to draft epics/features/stories/tasks.
-7. (Optional) If you already have a backlog, populate `ai-inbox/backlog/pre-features.yaml`; otherwise Douglas will generate one during Sprint Zero.
-8. Start iterating with `douglas run` once you're ready. Each loop runs a daily standup snapshot, refines the backlog, and then executes the engineering steps.
+## Two Ways to Use Douglas
 
-### Before you run the loop
+### 1. Bootstrapping your own application
 
-- Ensure the `douglas` CLI is available in this shell. The project virtualenv only installs app dependencies, so either reuse the environment that ran `douglas init` or install Douglas into this venv (`pip install -e /path/to/Douglas`).
-- Verify your Codex CLI is at least version 0.40 (`codex --version`) and can run non-interactively (`codex exec "echo Codex CLI ready"`); upgrade with `pip install -U codex-cli` and re-run `codex login` if either check fails.
-- Initialise Git (`git init`) if you didn't supply `--git` during scaffolding so Douglas can inspect history and manage commits, then capture the scaffold as your first commit (`git add . && git commit -m "Initial scaffold"`).
-- The default pipelines expect `ruff`, `black`, `isort`, `mypy`, and the OpenAI SDK. They are included in `requirements-dev.txt`; rerun `make venv` after pulling updates, or install them manually inside the active venv. If a tool still reports missing, run `pip install ruff black isort mypy openai` while the venv is active.
-- Install provider SDKs (`pip install openai`, etc.) if you plan to use them directly and export the corresponding API keys. Running `python -c "import openai"` inside the venv is a quick sanity check.
-- Sprint Zero planning is enabled by default (`planning.enabled: true` in `douglas.yaml`) and runs every loop to keep the backlog fresh. Set `sprint_zero_only: true` or disable planning entirely if you prefer manual backlog grooming.
-- Douglas records standup notes under `ai-inbox/sprints/` each iteration. Review these alongside retrospective and demo artifacts to track progress.
-- Charter documents for the autonomous agents (`AGENTS.md`, `AGENT_CHARTER.md`, etc.) are generated in `ai-inbox/charters/` during Sprint Zero.
+Douglas ships with a turnkey `douglas init` command that creates a ready-to-run Python project or a blank scaffold.
 
-Refer to the Douglas README for detailed documentation and advanced workflows.
+**Quickstart (Python template)**
+
+Run these commands from the directory where you want the new project folder (for example, your workspace root). Douglas will create the scaffolded app as a sibling directory. Make sure the `douglas` CLI is installed first—if the check below fails, follow the [Installation & setup](#installation--setup) steps before proceeding.
+
+```bash
+# Confirm the Douglas CLI is available; fallback to installation instructions if not
+command -v douglas >/dev/null || { echo "Douglas CLI not found. See Installation & setup."; }
+
+# Create a new project in ./my-app with the default per-feature push policy
+douglas init my-app --template python --non-interactive
+
+cd my-app
+
+# Ensure this directory is a Git repo (skip if you passed --git above)
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git init
+
+# Optional: record the scaffold as the first commit so Douglas can reference HEAD
+git rev-parse HEAD >/dev/null 2>&1 || { git add . && git commit -m "Initial scaffold"; }
+
+# Keep the Douglas CLI available in the active environment
+douglas --version >/dev/null 2>&1 || pip install -e /path/to/Douglas  # replace path with your local clone; use `pip install douglas` once published
+
+# Ensure Codex CLI is up to date (0.40.0 or newer)
+codex --version  # should print codex-cli 0.40.0 (or newer)
+
+codex login  # authenticate via the Codex CLI in your browser (default provider credentials)
+codex exec "echo Codex CLI ready"  # success output confirms the CLI is authenticated and usable
+
+# Optional: copy the example env file if you prefer direct API tokens
+cp .env.example .env
+
+# Prepare a virtual environment and install the scaffolded dev dependencies
+make venv
+
+# Optional: confirm lint/type tooling and provider SDKs are available (installed via `make venv`)
+. .venv/bin/activate && ruff --version && black --version && isort --version && mypy --version && python -c "import openai; print('openai', openai.__version__)"
+# If any are missing, rerun `pip install -r requirements-dev.txt` or install manually with `pip install ruff black isort mypy openai` while the venv is active.
+
+# Optional: you may need to reinstall Douglas from the new .venv (update the path if your clone lives elsewhere):
+pip install -e /path/to/Douglas
+
+# Sprint Zero planning runs automatically when `planning.enabled: true` and repeats each loop so the backlog stays fresh. Flip `sprint_zero_only` to `true` if you only want it on the first iteration.
+# Each iteration records a standup snapshot under `ai-inbox/sprints/` before coding begins. Review these alongside retro/demo outputs to track progress.
+# Sprint Zero also seeds charter documents (`ai-inbox/charters/AGENTS.md`, `AGENT_CHARTER.md`, etc.) so every agent has guidance before writing code.
+# Use `--log-level info` or `--log-level debug` (or set `DOUGLAS_LOG_LEVEL`) to surface the structured planning and Codex CLI logs introduced in this release.
+
+# Run the generated unit tests
+make test
+
+# Start iterating with Douglas (SEE NOTE BELOW)
+douglas run
+```
+
+Before you launch the first loop, edit the scaffolded `system_prompt.md` (and optionally `ai-inbox/backlog/pre-features.yaml`) to describe the feature, sprint goal, or backlog items you want Douglas to tackle. The orchestrator reads those files during `douglas run`, so giving it direction up front keeps the initial iteration focused on the work you care about.
+
+Additional options let you customise the scaffold:
+
+- `--push-policy` selects release cadence (`per_feature`, `per_feature_complete`, `per_bug`, `per_epic`, `per_sprint`).
+- `--git` initialises a Git repository and commits the scaffolded files.
+- `--ci github` adds a GitHub Actions workflow that runs `pytest -q`.
+- `--license mit` drops in an MIT licence. `--template blank` gives you a minimal README, `.env.example`, `.gitignore`, and configuration file for non-Python stacks.
+- `--provider codex|claude_code|gemini|openai|copilot` records the default AI provider (Codex by default). Pair it with `--model` to set a specific model identifier in the generated configuration.
+
+### 2. Dogfooding the Douglas repo
+
+To work on Douglas itself, clone this repository, install it in editable mode, and run the loop directly against the Douglas source tree:
+
+```bash
+git clone https://github.com/dickymoore/Douglas
+cd Douglas
+python -m pip install -e .[dev]
+douglas run
+```
+
+Dogfooding exercises the full development loop (generate → lint → typecheck → test → commit → push → PR) using Douglas' own configuration and templates.
+
+### Loop cadence vocabulary
+
+- **Loop iteration** – one pass through the configured steps (generate, lint, typecheck, test, commit, push, PR, etc.). Iterations are artificial; multiple loops can happen within a real-world day.
+- **Sprint length** – the number of iterations Douglas maps to a sprint. The default scaffold uses `sprint_length: 10` to mirror two work weeks (10 working days). Adjust this for shorter demos or longer cadences.
+- **Commits** – Douglas creates a commit whenever there are staged changes after a successful iteration.
+- **Pushes** – controlled by the push policy:
+  - `per_feature` pushes after each completed feature (`feat:` commit) once local checks pass.
+  - `per_feature_complete` still commits every iteration but only pushes when a feature has been completed (i.e., a `feat:` commit was produced and no further work is queued).
+  - `per_sprint` waits until the final iteration of the sprint before pushing accumulated commits.
+  - `per_bug` and `per_epic` mirror `per_feature` for `fix:` and `epic:` commits.
+- **Pull requests** – follow the same cadence rules as pushes. When push/PR steps execute, Douglas monitors CI and records history events for traceability.
+
+## Table of contents
+
+- [Installation & setup](#installation--setup)
+- [Feature catalogue](#feature-catalogue)
+  - [Configuration: `douglas.yaml`](#configuration-douglasyaml)
+  - [Douglas orchestrator](#douglas-orchestrator)
+  - [Cadence & sprint management](#cadence--sprint-management)
+  - [Journaling, questions, and run-state controls](#journaling-questions-and-run-state-controls)
+  - [Pipelines](#pipelines)
+  - [Providers](#providers)
+  - [Templates, bootstrapping & examples](#templates-bootstrapping--examples)
+- [Application flow](#application-flow)
+  - [High-level architecture](#high-level-architecture)
+  - [Loop iteration life cycle](#loop-iteration-life-cycle)
+  - [Artifact flow](#artifact-flow)
+- [End-to-end tutorial](#end-to-end-tutorial)
+- [Limitations and open gaps](#limitations-and-open-gaps)
+
+## Installation & setup
+
+### Install from source
+
+```bash
+# Clone the project
+git clone https://github.com/dickymoore/Douglas
+cd Douglas
+
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Install Douglas in editable mode with development tools
+pip install -e .[dev]
+
+# Optional: install pre-commit hooks if you plan to contribute
+pre-commit install
+```
+
+With Douglas installed you can drive the orchestrator directly from the packaged Typer CLI:
+
+```bash
+# Validate your configuration and environment
+douglas check
+
+# Run the AI-assisted development loop using the default douglas.yaml
+douglas run
+
+# Scaffold a brand new project in ./my-new-service using Douglas templates
+douglas init my-new-service
+
+# Provide a custom configuration file if you keep it somewhere else
+douglas run --config path/to/douglas.yaml
+```
+
+### Configure AI access
+
+Douglas ships with a multi-provider registry. The Codex CLI is the default authentication path:
+
+1. Install the Codex CLI and run `codex login` to authenticate via your browser. Douglas will reuse the CLI session automatically.
+2. If you prefer to skip the CLI, install the OpenAI SDK (`pip install openai` or `pip install -e .[openai]`) and export `OPENAI_API_KEY`. Optional knobs like `OPENAI_MODEL`, `OPENAI_CODEX_MODEL`, and `OPENAI_BASE_URL`/`OPENAI_API_BASE` remain supported.
+
+You can override the CLI executable path with `CODEX_CLI_PATH` when needed.
+
+Additional providers honour their respective environment variables when available:
+
+- **Claude Code** – requires `anthropic` (`pip install anthropic`) and `ANTHROPIC_API_KEY`.
+- **Google Gemini** – requires `google-generativeai` (`pip install google-generativeai`) and `GEMINI_API_KEY` or `GOOGLE_API_KEY`.
+- **GitHub Copilot** – currently stubbed; configure `COPILOT_TOKEN`/`GITHUB_TOKEN` to silence warnings.
+
+If a provider-specific SDK or credential is missing, Douglas continues to run but falls back to deterministic stub output so development flows remain testable offline.
+
+### Running the orchestrator without installing
+
+If you prefer not to install the package, invoke the CLI from the source tree:
+
+```bash
+python -m douglas.cli check
+python -m douglas.cli run
+python -m douglas.cli init sample-project
+```
+
+The commands above defer to the `Douglas` class under the hood, so you can also instantiate it directly from Python for advanced orchestration (see the [tutorial](#end-to-end-tutorial)).
+
+## Feature catalogue
+
+### Configuration: `douglas.yaml`
+
+Douglas is entirely driven by a `douglas.yaml` file located at your project root. A canonical template lives in [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl) and is used when `init_project` scaffolds a new repository. Key sections include:
+
+- `project`: metadata used in prompts (name, description, language, license).
+- `ai`: declares the default provider, the available provider configurations (Codex/OpenAI/Claude Code/Gemini/Copilot), optional per-role `assignments`, and the path to a system prompt file used when constructing LLM prompts. [`douglas/core.py`](douglas/core.py)
+- `cadence`: role/activity cadence preferences consulted by the cadence manager.[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
+- `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations.[`douglas/core.py`](douglas/core.py)
+- `push_policy`: governs when push/PR steps fire (`per_feature`, `per_feature_complete`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
+- `sprint`: high-level sprint length used to calculate per-sprint cadences.[`douglas/core.py`](douglas/core.py)
+- `demo` & `retro`: configure sprint demo/retro pipelines (output formats, which sections to generate, backlog destinations). [`douglas/pipelines/demo.py`](douglas/pipelines/demo.py) [`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
+- `security`: optionally list tool aliases (e.g., `bandit`, `semgrep`) or explicit commands under the `loop` step configuration to tailor which scanners run and which paths they inspect.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
+- `history`: limits for preserved CI log excerpts and other retention knobs.[`douglas/core.py`](douglas/core.py)
+- `paths`: customize locations for source, tests, AI inboxes, sprint folders, run-state files, and question portals.[`douglas/core.py`](douglas/core.py)
+- `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features. [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
+
+### Douglas orchestrator
+
+The central `Douglas` class reads the configuration, constructs providers, and executes the AI-assisted loop.[`douglas/core.py`](douglas/core.py)
+
+Core capabilities:
+
+- **Lifecycle control** – `run_loop()` normalizes configured steps, enforces iteration limits, honours exit conditions (`tests_pass`, `ci_pass`, `sprint_demo_complete`, etc.), and respects soft/hard stop directives from a run-state file.[`douglas/core.py`](douglas/core.py)
+- **Provider bootstrap** – `create_llm_provider()` now builds an `LLMProviderRegistry`, wiring up Codex by default while honouring additional providers (OpenAI, Claude Code, Gemini, Copilot) and recording graceful offline fallbacks.[`douglas/core.py`](douglas/core.py)
+- **Sprint & cadence integration** – `SprintManager` tracks sprint day counters, completed features/bugs/epics, and commit counts, while `CadenceManager` decides whether each step should execute this iteration.[`douglas/core.py`](douglas/core.py)[`douglas/sprint_manager.py`](douglas/sprint_manager.py)[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
+- **Run-state enforcement** – `_check_run_state()` reads `user-portal/run-state.txt` (configurable) so that humans can request soft or hard stops mid-run.[`douglas/core.py`](douglas/core.py)[`douglas/controls/run_state.py`](douglas/controls/run_state.py)
+- **Question handling** – `_refresh_question_state()` looks for unanswered questions in the user portal and defers role steps until blocking items have been answered and archived.[`douglas/core.py`](douglas/core.py)[`douglas/journal/questions.py`](douglas/journal/questions.py)
+- **Step execution** – `_execute_step()` routes to concrete implementations for each well-known step name. Highlights:
+  - `generate` builds a rich prompt (system message, project metadata, recent commits, git status, TODOs) and asks the LLM to produce diffs or code blocks. It applies results via `_apply_diff`/`_apply_code_blocks` and stages modified files.[`douglas/core.py`](douglas/core.py)
+  - `review` requests LLM feedback on pending diffs and persists that feedback to `douglas_review.md` for future reference.[`douglas/core.py`](douglas/core.py)
+  - `lint`, `typecheck`, `test` delegate to pipeline modules which run `ruff`/`black`/`isort`, `mypy`, and `pytest` respectively, record agent summaries, and raise blocking handoffs when failures occur.[`douglas/core.py`](douglas/core.py)[`douglas/pipelines/lint.py`](douglas/pipelines/lint.py)[`douglas/pipelines/typecheck.py`](douglas/pipelines/typecheck.py)[`douglas/pipelines/test.py`](douglas/pipelines/test.py)
+  - `security` executes `run_security()` to launch Bandit, Semgrep, or custom security commands, truncates tool logs for history events, and records outcomes for the Security role inbox.[`douglas/core.py`](douglas/core.py)[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
+  - `retro` and `demo` orchestrate the sprint retrospective and demo pack generation, writing outputs beneath `ai-inbox/sprints/<sprint>/` and `demos/<sprint>/` while logging events.[`douglas/core.py`](douglas/core.py)[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
+  - `commit` autogenerates a Conventional Commit message via the LLM (with `_generate_commit_message()`), stages outstanding changes, and records the resulting commit.[`douglas/core.py`](douglas/core.py)
+  - `push` performs local guard checks (configurable commands such as `black --check`), attempts `git push` with automatic fast-forward pulls, records sprint cadence consumption, and may trigger CI monitoring.[`douglas/core.py`](douglas/core.py)
+  - `pr` delegates to a repository integration—GitHub via the `gh` CLI by default, with informative stubs for GitLab and Azure DevOps—and monitors CI runs when GitHub is active.[`douglas/core.py`](douglas/core.py)
+  - Unknown steps log a reminder but are marked executed so cadence can advance.[`douglas/core.py`](douglas/core.py)
+- **Local guard checks** – `_run_local_checks()` discovers configured commands (or defaults like `black --check`, `bandit`, `semgrep` when available), runs them, and blocks release steps when they fail while writing history entries and bug tickets.[`douglas/core.py`](douglas/core.py)
+- **CI monitoring** – `_monitor_ci()` polls GitHub Actions via `gh run list/view` when GitHub is the configured provider, downloading logs and raising handoffs/bug tickets when runs fail. Other providers record a skipped status so humans can follow up manually.[`douglas/core.py`](douglas/core.py)
+- **Bug ticketing** – `_create_bug_ticket()` appends Markdown entries under `ai-inbox/bugs.md` with log excerpts and commit metadata for any failed step.[`douglas/core.py`](douglas/core.py)
+- **History logging** – `write_history()` persists JSONL events in `ai-inbox/history.jsonl`, ensuring the directory is git-ignored, and most operations call `_write_history_event()` for traceability.[`douglas/core.py`](douglas/core.py)
+- **Summaries & handoffs** – `_record_agent_summary()` and `_raise_agent_handoff()` write markdown summaries/handoffs for each agile role beneath `ai-inbox/sprints/<sprint>/roles/`.[`douglas/core.py`](douglas/core.py)[`douglas/journal/agent_io.py`](douglas/journal/agent_io.py)
+- **Project bootstrap** – `init_project()` scaffolds a new repository (README, `.env.example`, `.gitignore`, `pyproject.toml`, sample code in `src/app/__init__.py`, unit tests under `tests/test_app.py`, and optional GitHub Actions workflows) using Jinja-style templates.[`douglas/core.py`](douglas/core.py)[`templates/init`](templates/init)
+- **Utilities** – additional helpers fetch git status, collect TODOs, sanitize commit messages, construct PR bodies, discover run-state paths, and expose `check()`/`doctor()` diagnostics.[`douglas/core.py`](douglas/core.py)
+
+### Cadence & sprint management
+
+Cadence decisions ensure that each agile role participates on the right schedule:
+
+- `CadenceManager` merges default metadata for common steps with role-level cadence overrides, returning `CadenceDecision` objects that include reasons (e.g., "per_sprint; waiting for final day").[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
+- `SprintManager` tracks sprint days/iterations, pending feature/bug/epic events derived from commit messages, counts how often each step has run, and enforces push/PR policies for the current sprint.[`douglas/sprint_manager.py`](douglas/sprint_manager.py)
+- Together they power role-aware logging and allow exit conditions like `sprint_demo_complete` to end the loop when milestones are achieved.[`douglas/core.py`](douglas/core.py)
+
+### Journaling, questions, and run-state controls
+
+Douglas keeps humans in the loop via Markdown journals under `ai-inbox/`:
+
+- `agent_io.append_summary()` and `append_handoff()` log per-role updates and blocking handoffs in sprint folders. Entries include timestamps, structured detail blocks, and handoff IDs for traceability.[`douglas/journal/agent_io.py`](douglas/journal/agent_io.py)
+- `questions.raise_question()` emits YAML-front-matter Markdown files in a user portal so agents can request clarification, and `scan_for_answers()` checks for user responses. Answered questions are archived and trigger follow-up summaries.[`douglas/journal/questions.py`](douglas/journal/questions.py)
+- `retro_collect.collect_role_documents()` gathers each role's summaries/handoffs when preparing the retrospective prompt.[`douglas/journal/retro_collect.py`](douglas/journal/retro_collect.py)
+- `controls.run_state` defines `RunState` directives (`CONTINUE`, `SOFT_STOP`, `HARD_STOP`) that the orchestrator respects to gracefully wind down or exit immediately.[`douglas/controls/run_state.py`](douglas/controls/run_state.py)
+
+### Pipelines
+
+Each pipeline module focuses on a single concern:
+
+- `pipelines.lint.run_lint()` executes `ruff`, `black --check`, and `isort --check-only`, printing clear failure diagnostics.[`douglas/pipelines/lint.py`](douglas/pipelines/lint.py)
+- `pipelines.typecheck.run_typecheck()` runs `mypy` (plus any configured extras) and propagates non-zero exit codes.[`douglas/pipelines/typecheck.py`](douglas/pipelines/typecheck.py)
+- `pipelines.test.run_tests()` launches `pytest -q` and returns non-zero status on failure.[`douglas/pipelines/test.py`](douglas/pipelines/test.py)
+- `pipelines.demo.write_demo_pack()` renders Markdown demo decks using Jinja-style templates, enumerating commits, role highlights, how-to-run instructions, limitations, and next steps.[`douglas/pipelines/demo.py`](douglas/pipelines/demo.py)
+- `pipelines.retro.run_retro()` builds a JSON prompt for the LLM from sprint journals, parses action items/wins/risks, writes per-role instruction sheets, and appends backlog entries.[`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
+- `pipelines.security.run_security()` normalises tool aliases or explicit commands, runs Bandit/Semgrep/custom checks with captured output, surfaces actionable diagnostics, and fails fast when no tooling is available—skipping gracefully if prerequisites are missing.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
+
+### Providers
+
+The provider abstraction keeps Douglas model-agnostic:
+
+- `LLMProvider` is a simple interface with a `generate_code(prompt)` method and a `create_provider()` factory.[`douglas/providers/llm_provider.py`](douglas/providers/llm_provider.py)
+  - `LLMProviderRegistry` parses `ai.default_provider`, `ai.providers`, and optional per-role `assignments` to deliver the right provider for each step.[`douglas/providers/provider_registry.py`](douglas/providers/provider_registry.py)
+  - `CodexProvider` builds on the OpenAI transport with sensible defaults for the Codex models while degrading to a stub when credentials are missing.[`douglas/providers/codex_provider.py`](douglas/providers/codex_provider.py)
+  - `OpenAIProvider` initialises the OpenAI SDK, honours `ai.model` overrides (or `OPENAI_MODEL`) plus optional `ai.base_url`/`ai.api_key` settings, and returns real model output when credentials and the SDK are available—falling back to a local stub otherwise.[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
+  - `ClaudeCodeProvider`, `GeminiProvider`, and `CopilotProvider` handle Anthropic, Google, and GitHub Copilot integrations respectively, issuing warnings and deterministic placeholder output whenever SDKs or API keys are absent.[`douglas/providers/claude_code_provider.py`](douglas/providers/claude_code_provider.py) [`douglas/providers/gemini_provider.py`](douglas/providers/gemini_provider.py) [`douglas/providers/copilot_provider.py`](douglas/providers/copilot_provider.py)
+
+### Templates, bootstrapping & examples
+
+- Template files in [`templates/init`](templates/init) drive `init_project()`, generating README/system prompts, starter code, unit tests, and GitHub Actions workflows for new repos.
+- A minimal example lives under [`examples/hello-douglas`](examples/hello-douglas), showcasing the configuration needed to lint, type-check, and test a simple script.
+- The project root includes `system_prompt.md`, which seeds the system message used in generated prompts.[`system_prompt.md`](system_prompt.md)
+
+## Application flow
+
+### High-level architecture
+
+```mermaid
+flowchart LR
+    CLI((Typer CLI)) -->|instantiates| Core[Douglas core]
+    Core -->|reads| Config[douglas.yaml]
+    Core -->|coordinates| Pipelines
+    Core -->|logs| Inbox[ai-inbox/*]
+    Core -->|pushes/PRs| Git[Git & GitHub]
+    Pipelines -->|run tools| Tooling[(ruff/black/isort/mypy/pytest/gh)]
+    Core -->|prompts| LLM[LLM Provider]
+```
+
+### Loop iteration life cycle
+
+```mermaid
+flowchart TD
+    Start([Start run_loop]) --> LoadConfig{{Normalize steps}}
+    LoadConfig --> CheckState[/Read run-state/]
+    CheckState --> Iterate{Iteration limit}
+    Iterate -->|for each step| Cadence{{Cadence decision}}
+    Cadence -->|skip| SkipLog[Record skipped reason]
+    Cadence -->|run| Execute[Execute step]
+    Execute --> Outcome{Success?}
+    Outcome -->|No| Failure[Log bug, handoff, history]
+    Outcome -->|Yes| Summaries[Write summaries & history]
+    Summaries --> NextStep
+    SkipLog --> NextStep
+    NextStep --> ExitCheck{Exit conditions met?}
+    ExitCheck -->|No| Iterate
+    ExitCheck -->|Yes| Finish([Complete loop, check run-state])
+```
+
+### Artifact flow
+
+- Configuration + prompts → `generate`/`review` interact with the LLM and stage files.
+- Each executed step writes role summaries and optional handoffs to `ai-inbox/sprints/sprint-<n>/roles/<role>/`.
+- Failures create bug tickets in `ai-inbox/bugs.md` and CI logs under `ai-inbox/ci/`.
+- Retro and demo steps populate `ai-inbox/sprints/` and `demos/` directories with Markdown deliverables.
+- History events accumulate in `ai-inbox/history.jsonl`, providing an append-only audit trail.
+
+## End-to-end tutorial
+
+This walkthrough shows how to exercise Douglas on a fresh repository without depending on external APIs.
+
+1. **Install prerequisites**
+   - Python 3.9+
+   - Git and GitHub CLI (`gh`) if you intend to run push/PR steps
+   - Lint/type/test tooling (`ruff`, `black`, `isort`, `mypy`, `pytest`) – these are included in `.[dev]`
+
+2. **Create and activate a virtual environment**
+   ```bash
+   git clone https://github.com/dickymoore/Douglas
+   cd Douglas
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e .[dev]
+   ```
+
+3. **Prepare a sample project**
+   - Create a clean directory (`mkdir demo-app && cd demo-app`).
+   - Initialize git (`git init` + configure user name/email) and commit a starter file.
+   - Copy `system_prompt.md` from Douglas or author your own.
+   - Copy `templates/douglas.yaml.tpl` and adapt it to your repo (at minimum set the project name and ensure the `paths.app_src` and `paths.tests` entries match your layout).
+
+4. **Configure the LLM provider**
+   - Authenticate with the Codex CLI (`codex login`) – this opens a browser flow and stores credentials that Douglas consumes automatically. Set `CODEX_CLI_PATH` if the executable lives outside your `PATH`.
+   - Alternatively, export `OPENAI_API_KEY` (and optionally `OPENAI_MODEL` or `OPENAI_BASE_URL`) to drive the OpenAI transport directly instead of the CLI-managed credentials.
+   - For offline experimentation you can monkeypatch `Douglas.create_llm_provider` to return a simple object with a `generate_code(prompt)` method that prints the prompt and returns deterministic output (the test suite demonstrates this pattern). The built-in provider will also fall back to a local stub whenever credentials or the SDK are unavailable.
+
+5. **Run the development loop**
+   - Validate configuration and environment prerequisites:
+     ```bash
+     douglas check
+     ```
+   - Use the CLI entry point exposed by Typer:
+     ```bash
+     douglas run
+     ```
+   - Prefer `douglas check` first to confirm prerequisites, and `douglas init <name>` when bootstrapping a new repo from templates.
+   - Programmatic access remains available for automation workflows:
+     ```bash
+     douglas check --config douglas.yaml
+     ```
+   - Kick off the orchestrator, pointing at your project configuration:
+     ```bash
+     douglas run --config douglas.yaml
+     ```
+   - The CLI is a thin Typer wrapper over the `Douglas` orchestrator; it prints cadence decisions, executed step names, and exit-condition results to stdout while writing artifacts to `ai-inbox/`.
+
+6. **Interpret the outputs**
+   - Check `ai-inbox/sprints/sprint-1/roles/` for per-role summaries and handoffs.
+   - Open `ai-inbox/history.jsonl` to review structured events such as commits, local check passes/failures, and CI results.
+   - Examine `ai-inbox/bugs.md` when steps fail; each entry includes commit metadata and log excerpts.
+   - Inspect `douglas_review.md` for the most recent AI review feedback and `demos/sprint-1/demo.md` for the generated sprint review deck.
+
+7. **Respond to questions or control the run**
+   - If Douglas raises questions (files under `user-portal/questions/`), open them in an editor, fill in the "User Answer" section, and rerun the loop—answered questions are auto-archived.
+   - To request a soft stop, write `SOFT_STOP` to `user-portal/run-state.txt`; the loop will finish the sprint then exit. Use `HARD_STOP` for an immediate exit.
+
+8. **Iterate and release**
+   - Commit additional code between runs; Douglas will notice new TODOs and commits when building prompts.
+   - The `push` step runs configured local checks before attempting `git push`. Ensure your repo has a remote configured (`git remote add origin ...`) if you plan to exercise push/PR steps.
+   - Monitor the `ai-inbox/ci/` directory for downloaded GitHub Actions logs when CI monitoring is enabled.
+
+9. **Bootstrap new repositories**
+   - From an installed environment you can call `Douglas(...).init_project('my-new-app')` or run `douglas init my-new-app` to scaffold a starter repo with templates, tests, and CI workflows. Move into the generated folder and begin iterating with the loop.
+
+## Limitations and open gaps
+
+- `OpenAIProvider` integrates with the OpenAI SDK (with graceful fallbacks); broader support for additional LLM vendors remains future work.
+- The security pipeline expects at least one local security tool (Bandit by default, Semgrep when available). Install the tooling or configure custom commands to keep the guardrails effective while expanded first-class integrations (Semgrep, pip-audit, custom policies) are still on the roadmap.
+- Additional console subcommands beyond `run`, `check`, and `init` (for operations such as `doctor`) are still exposed via the Python API only.
+- The CLI currently exposes coarse-grained orchestration commands (`run`, `check`, `init`); advanced scenarios such as running a single step or dry-run modes remain future enhancements.
+- Douglas has not yet been published to PyPI while packaging, release automation, and dependency matrices continue to stabilize.
+
+Despite these gaps, the core orchestration, cadence handling, journaling, retro/demo generation, and release automation logic are fully implemented and thoroughly unit tested under `tests/`.

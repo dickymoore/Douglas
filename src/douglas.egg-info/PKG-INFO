@@ -6,9 +6,6 @@ Author: Douglas
 Requires-Python: >=3.11
 Description-Content-Type: text/markdown
 License-File: LICENSE
-Requires-Dist: typer>=0.9
-Requires-Dist: pyyaml>=6.0
-Requires-Dist: rich>=10.11
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Dynamic: license-file

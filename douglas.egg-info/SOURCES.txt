@@ -38,6 +38,7 @@ douglas/providers/llm_provider.py
 douglas/providers/openai_provider.py
 douglas/providers/provider_registry.py
 tests/test_agent_journals.py
+tests/test_app.py
 tests/test_basic.py
 tests/test_cadence_and_push_integration.py
 tests/test_cadence_manager.py
