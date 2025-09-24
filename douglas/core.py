@@ -160,9 +160,9 @@ class Douglas:
         self._ci_monitoring_deferred: bool = False
         self._configured_steps: set[str] = set()
         self._executed_step_names: set[str] = set()
-        self._blocking_questions_by_role: Dict[
-            str, List[question_journal.Question]
-        ] = {}
+        self._blocking_questions_by_role: Dict[str, List[question_journal.Question]] = (
+            {}
+        )
         self._run_state_path = self._resolve_run_state_path()
         self._soft_stop_pending = False
 
@@ -769,8 +769,9 @@ class Douglas:
     def _exit_conditions_met(self, executed_steps: List[str]) -> bool:
         exit_conditions = self.config.get("loop", {}).get("exit_conditions") or []
         for condition in exit_conditions:
-            if condition == "sprint_demo_complete" and self.sprint_manager.has_step_run(
-                "demo"
+            if (
+                condition == "sprint_demo_complete"
+                and self.sprint_manager.has_step_run("demo")
             ):
                 return True
             if condition == "tests_pass" and self._loop_outcomes.get("test") is True:
