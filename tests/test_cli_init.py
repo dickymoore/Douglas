@@ -1,14 +1,11 @@
-import sys
 from pathlib import Path
 
 import yaml
 from typer.testing import CliRunner
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from douglas import cli as cli_module  # noqa: E402
-from douglas.cli import app  # noqa: E402
-from douglas.core import Douglas  # noqa: E402
+from douglas import cli as cli_module
+from douglas.cli import app
+from douglas.core import Douglas
 
 
 def test_cli_init_without_config(monkeypatch, tmp_path):
@@ -37,7 +34,9 @@ def test_cli_init_without_config(monkeypatch, tmp_path):
     )
 
     assert scaffold_config["project"]["name"] == "sample-project"
-    assert scaffold_config["ai"]["provider"] == "openai"
+    assert scaffold_config["ai"]["default_provider"] == "codex"
+    providers = scaffold_config["ai"].get("providers", {})
+    assert providers.get("codex", {}).get("provider") == "codex"
     assert scaffold_config["loop"]["exit_conditions"] == ["ci_pass"]
     assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
     assert scaffold_config["sprint"]["length_days"] == 10
@@ -90,3 +89,30 @@ def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):
     assert init_call_kwargs["name"] is None
     assert init_call_kwargs["template"] == "python"
     assert init_call_kwargs["push_policy"] == "per_feature"
+
+
+def test_cli_init_supports_provider_override(monkeypatch, tmp_path):
+    runner = CliRunner()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(Douglas, "create_llm_provider", lambda self: object())
+
+    result = runner.invoke(
+        app,
+        [
+            "init",
+            "with-alt-provider",
+            "--non-interactive",
+            "--provider",
+            "claude_code",
+            "--model",
+            "claude-test",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+    config = yaml.safe_load(
+        (tmp_path / "with-alt-provider" / "douglas.yaml").read_text(encoding="utf-8")
+    )
+    assert config["ai"]["default_provider"] == "claude_code"
+    assert config["ai"]["providers"]["claude_code"]["model"] == "claude-test"

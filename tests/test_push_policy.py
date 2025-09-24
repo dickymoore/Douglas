@@ -177,9 +177,7 @@ def test_per_feature_complete_policy_pushes_after_feature_completion(
     assert push_calls == ["push"]
 
 
-def test_per_feature_complete_policy_skips_non_feature_commits(
-    monkeypatch, tmp_path
-):
+def test_per_feature_complete_policy_skips_non_feature_commits(monkeypatch, tmp_path):
     steps = [
         {"name": "commit"},
         {"name": "push"},

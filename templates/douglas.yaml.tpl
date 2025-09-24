@@ -4,8 +4,11 @@ project:
   license: "MIT"
   language: "python"
 ai:
-  provider: "openai"
-  model: "gpt-4"
+  default_provider: "codex"
+  providers:
+    codex:
+      provider: "codex"
+      model: "code-davinci-002"
   prompt: "system_prompt.md"
 cadence:
   Developer:
