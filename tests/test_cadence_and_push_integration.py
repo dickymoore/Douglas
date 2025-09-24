@@ -1,10 +1,8 @@
 import subprocess
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict, Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 import yaml

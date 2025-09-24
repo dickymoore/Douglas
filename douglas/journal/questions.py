@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -176,7 +177,10 @@ def archive_question(question: Question) -> Path:
 
     destination = question.archive_dir / question.path.name
     destination.parent.mkdir(parents=True, exist_ok=True)
-    question.path.replace(destination)
+    try:
+        question.path.replace(destination)
+    except OSError:
+        shutil.move(str(question.path), str(destination))
 
     sprint_prefix = _resolve_sprint_prefix(question.config)
     _log_question_to_summary(

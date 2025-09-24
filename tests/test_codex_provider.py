@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas.providers import codex_provider
 from douglas.providers.codex_provider import CodexProvider
@@ -46,18 +45,18 @@ def test_codex_provider_prefers_codex_specific_env(monkeypatch):
     assert provider.model == "code-cushman-001"
 
 
-def test_codex_provider_fallback_includes_placeholder(monkeypatch, capsys):
+def test_codex_provider_fallback_includes_placeholder(monkeypatch, caplog):
     monkeypatch.delenv("OPENAI_CODEX_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.setattr(codex_provider.shutil, "which", lambda executable: None)
 
     provider = CodexProvider()
 
-    result = provider.generate_code("print('hello world')")
-    captured = capsys.readouterr()
+    with caplog.at_level("WARNING", logger="douglas.providers.codex_provider"):
+        result = provider.generate_code("print('hello world')")
 
     assert result == "# Codex API unavailable; no code generated."
-    assert "[CodexProvider] Falling back to placeholder output." in captured.out
+    assert any("placeholder output" in record.message for record in caplog.records)
 
 
 def test_codex_provider_prefers_cli_token(monkeypatch):
@@ -116,11 +115,9 @@ def test_codex_provider_reads_cli_auth_file(monkeypatch, tmp_path, capsys):
 
     provider = CodexProvider()
 
-    captured = capsys.readouterr()
-
     assert provider._cli_token == "cli-file-token"
-    assert "unexpected argument" not in captured.out
-    assert "Usage" not in captured.out
+    captured = capsys.readouterr()
+    assert "unexpected argument" not in captured.err
 
 
 @pytest.mark.parametrize(

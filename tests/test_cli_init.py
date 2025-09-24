@@ -1,10 +1,8 @@
 from pathlib import Path
-import sys
 
 import yaml
 from typer.testing import CliRunner
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas import cli as cli_module
 from douglas.cli import app

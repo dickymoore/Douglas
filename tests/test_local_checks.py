@@ -1,12 +1,10 @@
 import json
 import subprocess
-import sys
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas.core import Douglas
 

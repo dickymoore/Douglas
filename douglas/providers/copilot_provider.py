@@ -5,7 +5,11 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from douglas.logging_utils import get_logger
 from douglas.providers.llm_provider import LLMProvider
+
+
+logger = get_logger(__name__)
 
 
 class CopilotProvider(LLMProvider):
@@ -27,16 +31,16 @@ class CopilotProvider(LLMProvider):
         self.model = model_name or os.getenv("COPILOT_MODEL") or self.DEFAULT_MODEL
         self._token = token or os.getenv("COPILOT_TOKEN") or os.getenv("GITHUB_TOKEN")
         if not self._token:
-            print(
-                "Warning: GitHub Copilot token not configured. Falling back to Copilot stub output."
+            logger.warning(
+                "GitHub Copilot token not configured. Falling back to Copilot stub output."
             )
 
     def generate_code(self, prompt: str) -> str:
         return self._fallback(prompt)
 
     def _fallback(self, prompt: str) -> str:  # pragma: no cover - log output only
-        print(
-            "[CopilotProvider] GitHub Copilot integration is stubbed. Prompt preview:"
+        logger.warning(
+            "GitHub Copilot integration is stubbed; returning placeholder output."
         )
-        print(prompt[:200])
+        logger.debug("Copilot fallback prompt preview:\n%s", prompt[:200])
         return "# GitHub Copilot API unavailable; no code generated."

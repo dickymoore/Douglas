@@ -1,7 +1,5 @@
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas.cadence_manager import CadenceManager, should_run_step
 from douglas.sprint_manager import SprintManager

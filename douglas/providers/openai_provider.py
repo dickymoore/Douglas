@@ -3,7 +3,11 @@ import os
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Optional
 
+from douglas.logging_utils import get_logger
 from douglas.providers.llm_provider import LLMProvider
+
+
+logger = get_logger(__name__)
 
 
 class OpenAIProvider(LLMProvider):
@@ -38,7 +42,7 @@ class OpenAIProvider(LLMProvider):
         self._use_responses_api = False
 
         if not self._api_key:
-            print("Warning: OPENAI_API_KEY not set. Falling back to local stub output.")
+            logger.warning("OPENAI_API_KEY not set. Falling back to local stub output.")
             return
 
         if self._initialize_modern_client():
@@ -66,8 +70,9 @@ class OpenAIProvider(LLMProvider):
             self._use_responses_api = True
             return True
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
-            print(
-                f"Warning: Failed to initialise OpenAI client via the modern SDK: {exc}"
+            logger.warning(
+                "Failed to initialise OpenAI client via the modern SDK; falling back to legacy interface.",
+                extra={"error": str(exc)},
             )
             self._client = None
             return False
@@ -78,9 +83,8 @@ class OpenAIProvider(LLMProvider):
         try:
             openai_module = importlib.import_module("openai")
         except ImportError:
-            print(
-                "Warning: The 'openai' package is not installed. Install it with "
-                "'pip install openai' to enable OpenAI integration."
+            logger.warning(
+                "The 'openai' package is not installed. Install it with 'pip install openai' to enable OpenAI integration."
             )
             self._client = None
             return
@@ -92,8 +96,9 @@ class OpenAIProvider(LLMProvider):
             self._client = openai_module
             self._use_responses_api = False
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
-            print(
-                f"Warning: Failed to initialise OpenAI client via the legacy SDK: {exc}"
+            logger.warning(
+                "Failed to initialise OpenAI client via the legacy SDK.",
+                extra={"error": str(exc)},
             )
             self._client = None
 
@@ -107,15 +112,14 @@ class OpenAIProvider(LLMProvider):
             else:
                 text = self._call_with_legacy_client(prompt)
         except Exception as exc:
-            print(
-                f"Warning: OpenAI request failed ({exc}). Falling back to stub output."
+            logger.warning(
+                "OpenAI request failed; falling back to stub output.",
+                extra={"error": str(exc)},
             )
             return self._fallback(prompt)
 
         if not text:
-            print(
-                "Warning: Received empty response from OpenAI. Falling back to stub output."
-            )
+            logger.warning("Received empty response from OpenAI. Falling back to stub output.")
             return self._fallback(prompt)
 
         return text
@@ -433,6 +437,6 @@ class OpenAIProvider(LLMProvider):
         return ""
 
     def _fallback(self, prompt: str) -> str:
-        print("[OpenAIProvider] Falling back to placeholder output. Prompt preview:")
-        print(prompt[:200])
+        logger.warning("OpenAI provider fallback triggered; returning placeholder output.")
+        logger.debug("OpenAI fallback prompt preview", extra={"prompt": prompt[:200]})
         return "# OpenAI API unavailable; no code generated."

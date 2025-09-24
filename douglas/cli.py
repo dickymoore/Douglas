@@ -12,6 +12,7 @@ import typer
 import yaml
 
 from douglas import __version__
+from douglas.logging_utils import configure_logging
 from douglas.core import Douglas, TEMPLATE_ROOT
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
@@ -40,8 +41,15 @@ def _main(
         callback=_version_callback,
         is_eager=True,
     ),
+    log_level: str = typer.Option(
+        "",
+        "--log-level",
+        help="Set Douglas log level (e.g. info, warning, debug). Overrides DOUGLAS_LOG_LEVEL.",
+    ),
 ) -> None:
     """Global callback to wire shared options like --version."""
+
+    configure_logging(log_level or None)
 
     return None
 
