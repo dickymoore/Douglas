@@ -1377,7 +1377,6 @@ class Douglas:
             "timeout",
             "timed out",
             "http error",
-            "403",
             "forbidden",
             "unauthorized",
         ]
