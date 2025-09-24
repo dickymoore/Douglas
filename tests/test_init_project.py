@@ -87,11 +87,7 @@ def test_init_project_creates_python_scaffold(monkeypatch, tmp_path):
     assert "OPENAI_API_KEY" in env_example
 
     pyproject_text = (target_dir / "pyproject.toml").read_text(encoding="utf-8")
-MERGE_CONFLICT< codex/implement-bootstrapping-command-and-readme-update
-    assert f"name = \"{target_dir.name.lower().replace('-', '_')}" in pyproject_text
-MERGE_CONFLICT=
     assert f"name = \"{target_dir.name.lower().replace('-', '_')}\"" in pyproject_text
-MERGE_CONFLICT> main
 
     requirements_text = (target_dir / "requirements-dev.txt").read_text(
         encoding="utf-8"
