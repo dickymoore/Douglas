@@ -1356,10 +1356,11 @@ class Douglas:
 
         combined_output = "\n".join(
             part for part in (result.stdout or "", result.stderr or "") if part
-        ).lower()
+        )
         if not combined_output:
             return False
 
+        combined_output_lower = combined_output.lower()
         network_markers = [
             "connectionerror",
             "connection error",
@@ -1374,7 +1375,7 @@ class Douglas:
             "ssl error",
             "certificate verify failed",
         ]
-        if any(marker in combined_output for marker in network_markers):
+        if any(marker in combined_output_lower for marker in network_markers):
             return True
 
         return bool(TLS_ERROR_PATTERN.search(combined_output))
