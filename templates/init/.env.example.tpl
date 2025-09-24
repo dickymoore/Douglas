@@ -1,3 +1,4 @@
-# Environment variables required by Douglas
-# Copy this file to `.env` and update the values before running the loop.
+# Environment variables recognised by Douglas
+# Authentication defaults to the Codex CLI (`codex login`). Populate the values
+# below only if you prefer to provide tokens directly.
 OPENAI_API_KEY=
