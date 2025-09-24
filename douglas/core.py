@@ -21,6 +21,7 @@ from douglas.journal import agent_io
 from douglas.journal import questions as question_journal
 from douglas.pipelines import demo as demopipe
 from douglas.pipelines import lint
+from douglas.pipelines import plan as planpipe
 from douglas.pipelines import retro as retropipe
 from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
@@ -809,6 +810,101 @@ class Douglas:
             print("Running generate step...")
             self.generate()
             return StepExecutionResult(True, True, override_event, already_recorded)
+
+        if step_name == "plan":
+            print("Running plan step...")
+            planning_config = self.config.get("planning") or {}
+            if not planning_config.get("enabled", True):
+                print("Planning disabled; skipping plan step.")
+                self._record_agent_summary(
+                    "ProductOwner",
+                    "plan",
+                    "Planning disabled in configuration.",
+                    {"status": "skipped"},
+                )
+                self._loop_outcomes["plan"] = {"status": "skipped"}
+                return StepExecutionResult(False, False, None, already_recorded)
+
+            if planning_config.get("sprint_zero_only", True) and (
+                self.sprint_manager.sprint_index > 1
+                or self.sprint_manager.current_day > 1
+            ):
+                print(
+                    "Skipping plan step: planning configured for Sprint Zero only and sprint has progressed."
+                )
+                self._record_agent_summary(
+                    "ProductOwner",
+                    "plan",
+                    "Sprint Zero planning already completed.",
+                    {"status": "skipped"},
+                )
+                self._loop_outcomes["plan"] = {"status": "skipped"}
+                return StepExecutionResult(False, False, None, already_recorded)
+
+            backlog_relative = planning_config.get(
+                "backlog_file",
+                self.config.get("retro", {}).get("backlog_file", "ai-inbox/backlog/pre-features.yaml"),
+            )
+            backlog_path = self.project_root / backlog_relative
+            system_prompt_name = self.config.get("ai", {}).get("prompt", "system_prompt.md")
+            system_prompt_path = self.project_root / system_prompt_name
+
+            llm = self._resolve_llm_provider("ProductOwner", "plan")
+
+            plan_context = planpipe.PlanContext(
+                project_name=self.config.get("project", {}).get("name", "Unknown Project"),
+                project_description=self.config.get("project", {}).get("description", ""),
+                project_root=self.project_root,
+                backlog_path=backlog_path,
+                system_prompt_path=system_prompt_path,
+                sprint_index=self.sprint_manager.sprint_index,
+                sprint_day=self.sprint_manager.current_day,
+                planning_config=planning_config,
+                llm=llm,
+            )
+
+            plan_result = planpipe.run_plan(plan_context)
+
+            if plan_result.created_backlog:
+                try:
+                    backlog_display = str(
+                        plan_result.backlog_path.relative_to(self.project_root)
+                    )
+                except ValueError:
+                    backlog_display = str(plan_result.backlog_path)
+                message = (
+                    "Seeded initial backlog with "
+                    f"{plan_result.epic_count()} epics and {plan_result.feature_count()} features."
+                )
+                summary_details = {
+                    "status": "seeded",
+                    "backlog_path": backlog_display,
+                    "epics": plan_result.epic_count(),
+                    "features": plan_result.feature_count(),
+                }
+                self._write_history_event(
+                    "backlog_planning",
+                    {
+                        "status": "seeded",
+                        "backlog_path": backlog_display,
+                        "epics": plan_result.epic_count(),
+                        "features": plan_result.feature_count(),
+                    },
+                )
+            else:
+                reason = _friendly_plan_reason(plan_result.reason)
+                message = f"Planning skipped: {reason}."
+                summary_details = {"status": "skipped", "reason": reason}
+
+            self._record_agent_summary(
+                "ProductOwner",
+                "plan",
+                message,
+                summary_details,
+            )
+            print(message)
+            self._loop_outcomes["plan"] = summary_details
+            return StepExecutionResult(True, plan_result.created_backlog, None, already_recorded)
 
         if step_name == "lint":
             print("Running lint step...")
@@ -3229,3 +3325,14 @@ class Douglas:
                     print(f"Warning: Unable to initialize git repository: {exc}")
 
         print("Project initialized with Douglas scaffolding.")
+
+
+def _friendly_plan_reason(reason: Optional[str]) -> str:
+    if not reason:
+        return "backlog already prepared"
+    normalized = reason.lower()
+    if normalized == "existing_backlog":
+        return "backlog already exists"
+    if normalized == "no_llm":
+        return "no planning model available"
+    return normalized

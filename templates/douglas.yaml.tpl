@@ -10,6 +10,12 @@ ai:
       provider: "codex"
       model: "code-davinci-002"
   prompt: "system_prompt.md"
+planning:
+  enabled: true
+  sprint_zero_only: true
+  backlog_file: "ai-inbox/backlog/pre-features.yaml"
+  allow_overwrite: false
+  goal: "Facilitate Sprint Zero by brainstorming epics, features, user stories, and tasks before coding begins."
 cadence:
   Developer:
     development: daily
@@ -36,6 +42,10 @@ cadence:
     status_update: on_demand
 loop:
   steps:
+    - name: plan
+      role: ProductOwner
+      activity: backlog_refinement
+      cadence: per_sprint
     - name: generate
       role: Developer
       activity: development

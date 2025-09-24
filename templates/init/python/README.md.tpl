@@ -9,8 +9,9 @@ This project was bootstrapped with [Douglas](${douglas_readme_url}).
 3. (Optional) Copy `.env.example` to `.env` if you plan to provide tokens manually.
 4. Create a virtual environment with `make venv`.
 5. Run the tests with `make test`.
-6. Update `system_prompt.md` (and optionally `ai-inbox/backlog/pre-features.yaml`) with the feature or sprint goal you want Douglas to tackle.
-7. Start iterating with `douglas run` once you're ready.
+6. Update `system_prompt.md` with the product vision and early hypotheses; Sprint Zero planning will read it to draft epics/features/stories/tasks.
+7. (Optional) If you already have a backlog, populate `ai-inbox/backlog/pre-features.yaml`; otherwise Douglas will generate one during Sprint Zero.
+8. Start iterating with `douglas run` once you're ready.
 
 ### Before you run the loop
 
@@ -19,5 +20,6 @@ This project was bootstrapped with [Douglas](${douglas_readme_url}).
 - Initialise Git (`git init`) if you didn't supply `--git` during scaffolding so Douglas can inspect history and manage commits, then capture the scaffold as your first commit (`git add . && git commit -m "Initial scaffold"`).
 - The default pipelines expect `ruff`, `black`, `isort`, `mypy`, and the OpenAI SDK. They are included in `requirements-dev.txt`; rerun `make venv` after pulling updates, or install them manually inside the active venv. If a tool still reports missing, run `pip install ruff black isort mypy openai` while the venv is active.
 - Install provider SDKs (`pip install openai`, etc.) if you plan to use them directly and export the corresponding API keys. Running `python -c "import openai"` inside the venv is a quick sanity check.
+- Sprint Zero planning is enabled by default (`planning.enabled: true` in `douglas.yaml`). Set it to `false` or toggle `sprint_zero_only` if you want to bypass automated backlog seeding.
 
 Refer to the Douglas README for detailed documentation and advanced workflows.
