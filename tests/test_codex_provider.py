@@ -49,6 +49,7 @@ def test_codex_provider_prefers_codex_specific_env(monkeypatch):
 def test_codex_provider_fallback_includes_placeholder(monkeypatch, capsys):
     monkeypatch.delenv("OPENAI_CODEX_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
+    monkeypatch.setattr(codex_provider.shutil, "which", lambda executable: None)
 
     provider = CodexProvider()
 

@@ -75,7 +75,18 @@ class CodexProvider(OpenAIProvider):
         with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as handle:
             last_message_path = Path(handle.name)
 
-        try:
+        auth_file = None
+        for candidate in self._candidate_auth_paths():
+            if candidate.exists():
+                auth_file = candidate
+                break
+
+        with tempfile.TemporaryDirectory(prefix="codex-cli-") as codex_home:
+            env = os.environ.copy()
+            env.setdefault("CODEX_HOME", codex_home)
+            if auth_file is not None:
+                env.setdefault("CODEX_AUTH_FILE", str(auth_file))
+
             command = [
                 self._cli_path,
                 "exec",
@@ -88,27 +99,29 @@ class CodexProvider(OpenAIProvider):
                 "--skip-git-repo-check",
             ]
 
-            result = subprocess.run(
-                command,
-                input=prompt,
-                text=True,
-                capture_output=True,
-                timeout=self._cli_timeout_seconds,
-                check=False,
-            )
-        except FileNotFoundError:
-            last_message_path.unlink(missing_ok=True)
-            return None
-        except subprocess.TimeoutExpired:
-            print("Warning: Codex CLI timed out; falling back to OpenAI provider.")
-            last_message_path.unlink(missing_ok=True)
-            return None
-        except Exception as exc:  # pragma: no cover - defensive
-            print(
-                f"Warning: Codex CLI invocation failed ({exc}). Falling back to OpenAI provider."
-            )
-            last_message_path.unlink(missing_ok=True)
-            return None
+            try:
+                result = subprocess.run(
+                    command,
+                    input=prompt,
+                    text=True,
+                    capture_output=True,
+                    timeout=self._cli_timeout_seconds,
+                    check=False,
+                    env=env,
+                )
+            except FileNotFoundError:
+                last_message_path.unlink(missing_ok=True)
+                return None
+            except subprocess.TimeoutExpired:
+                print("Warning: Codex CLI timed out; falling back to OpenAI provider.")
+                last_message_path.unlink(missing_ok=True)
+                return None
+            except Exception as exc:  # pragma: no cover - defensive
+                print(
+                    f"Warning: Codex CLI invocation failed ({exc}). Falling back to OpenAI provider."
+                )
+                last_message_path.unlink(missing_ok=True)
+                return None
 
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()
