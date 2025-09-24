@@ -16,3 +16,4 @@ credentials.yaml
 
 # Docker
 *.log
+.venv
