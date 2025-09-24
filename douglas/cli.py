@@ -191,7 +191,11 @@ def init(
         help="Push policy to encode in the generated douglas.yaml.",
     ),
     sprint_length: int = typer.Option(
+MERGE_CONFLICT< codex/implement-bootstrapping-command-and-readme-update
         Douglas.DEFAULT_SPRINT_LENGTH_DAYS,
+MERGE_CONFLICT=
+        10,
+MERGE_CONFLICT> main
         "--sprint-length",
         help="Sprint length (in iterations) to record in the generated douglas.yaml.",
     ),
