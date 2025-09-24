@@ -16,7 +16,7 @@ Run these commands from the directory where you want the new project folder (for
 
 ```bash
 # Confirm the Douglas CLI is available; fallback to installation instructions if not
-command -v douglas >/dev/null || { echo "Douglas CLI not found. See Installation & setup."; exit 1; }
+command -v douglas >/dev/null || { echo "Douglas CLI not found. See Installation & setup."; }
 
 # Create a new project in ./my-app with the default per-feature push policy
 douglas init my-app --template python --non-interactive
