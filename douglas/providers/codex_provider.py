@@ -1,4 +1,4 @@
-"""Codex provider that prefers the Codex CLI for authentication."""
+"""Codex provider that shells out to the Codex CLI when available."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -32,12 +33,10 @@ class CodexProvider(OpenAIProvider):
         base_url: Optional[str] = None,
         cli_path: Optional[str] = None,
     ) -> None:
+        resolved_cli_path = self._resolve_cli_path(cli_path)
         cli_token = None
-        if api_key is None:
-            resolved_cli_path = self._resolve_cli_path(cli_path)
+        if api_key is None and resolved_cli_path:
             cli_token = self._resolve_cli_token(resolved_cli_path)
-        else:
-            resolved_cli_path = None
 
         resolved_model = (
             model_name
@@ -54,12 +53,97 @@ class CodexProvider(OpenAIProvider):
 
         self._cli_path = resolved_cli_path
         self._cli_token = cli_token
+        self._cli_timeout_seconds = int(os.getenv("CODEX_CLI_TIMEOUT", "300"))
 
     def _resolve_cli_path(self, cli_path: Optional[str]) -> Optional[str]:
         explicit = cli_path or os.getenv(self._CLI_EXECUTABLE_ENV)
         if isinstance(explicit, str) and explicit.strip():
             return explicit.strip()
         return shutil.which(self._CLI_DEFAULT_EXECUTABLE)
+
+    def generate_code(self, prompt: str) -> str:
+        cli_result = self._invoke_codex_cli(prompt)
+        if cli_result:
+            return cli_result
+
+        return super().generate_code(prompt)
+
+    def _invoke_codex_cli(self, prompt: str) -> Optional[str]:
+        if not self._cli_path:
+            return None
+
+        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as handle:
+            last_message_path = Path(handle.name)
+
+        try:
+            command = [
+                self._cli_path,
+                "exec",
+                "-",
+                "--output-last-message",
+                str(last_message_path),
+                "--color",
+                "never",
+                "--full-auto",
+                "--skip-git-repo-check",
+            ]
+
+            result = subprocess.run(
+                command,
+                input=prompt,
+                text=True,
+                capture_output=True,
+                timeout=self._cli_timeout_seconds,
+                check=False,
+            )
+        except FileNotFoundError:
+            last_message_path.unlink(missing_ok=True)
+            return None
+        except subprocess.TimeoutExpired:
+            print("Warning: Codex CLI timed out; falling back to OpenAI provider.")
+            last_message_path.unlink(missing_ok=True)
+            return None
+        except Exception as exc:  # pragma: no cover - defensive
+            print(
+                f"Warning: Codex CLI invocation failed ({exc}). Falling back to OpenAI provider."
+            )
+            last_message_path.unlink(missing_ok=True)
+            return None
+
+        if result.returncode != 0:
+            stderr = (result.stderr or "").strip()
+            if stderr:
+                print(
+                    "Warning: Codex CLI exited with code "
+                    f"{result.returncode}: {stderr}. Falling back to OpenAI provider."
+                )
+            else:
+                print(
+                    "Warning: Codex CLI exited with a non-zero status; falling back to "
+                    "OpenAI provider."
+                )
+            last_message_path.unlink(missing_ok=True)
+            return None
+
+        try:
+            message = last_message_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            message = ""
+        finally:
+            last_message_path.unlink(missing_ok=True)
+
+        if message:
+            return message
+
+        stdout = (result.stdout or "").strip()
+        if stdout:
+            return stdout
+
+        stderr = (result.stderr or "").strip()
+        if stderr:
+            return stderr
+
+        return None
 
     def _resolve_cli_token(self, cli_path: Optional[str]) -> Optional[str]:
         if not cli_path:

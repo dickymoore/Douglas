@@ -1,4 +1,6 @@
 import json
+import stat
+import textwrap
 import subprocess
 import sys
 import types
@@ -10,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas.providers import codex_provider
 from douglas.providers.codex_provider import CodexProvider
+from douglas.providers.openai_provider import OpenAIProvider
 
 
 class _DummyResult:
@@ -64,7 +67,8 @@ def test_codex_provider_prefers_cli_token(monkeypatch):
     )
 
     fake_subprocess = types.SimpleNamespace(
-        run=lambda *args, **kwargs: _DummyResult(stdout="token-from-cli\n")
+        run=lambda *args, **kwargs: _DummyResult(stdout="token-from-cli\n"),
+        TimeoutExpired=subprocess.TimeoutExpired,
     )
     monkeypatch.setattr(codex_provider, "subprocess", fake_subprocess)
 
@@ -95,6 +99,7 @@ def test_codex_provider_reads_cli_auth_file(monkeypatch, tmp_path, capsys):
         types.SimpleNamespace(
             run=_failing_run,
             CalledProcessError=subprocess.CalledProcessError,
+            TimeoutExpired=subprocess.TimeoutExpired,
         ),
     )
 
@@ -132,3 +137,67 @@ def test_parse_cli_token(stdout: str, stderr: str, expected: str) -> None:
 
 def test_parse_cli_token_rejects_noise() -> None:
     assert CodexProvider._parse_cli_token("Please login", "") is None
+
+
+def _create_stub_codex_cli(tmp_path: Path, *, exit_code: int = 0, body: str = "Generated code") -> Path:
+    script = tmp_path / "codex"
+    script.write_text(
+        textwrap.dedent(
+            f"""#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+output_file = None
+for index, value in enumerate(args):
+    if value == "--output-last-message" and index + 1 < len(args):
+        output_file = Path(args[index + 1])
+
+prompt = sys.stdin.read().strip()
+message = "{body}: " + prompt
+
+if output_file is not None:
+    output_file.write_text(message, encoding="utf-8")
+else:
+    print(message)
+
+sys.exit({exit_code})
+"""
+        ),
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return script
+
+
+def test_codex_provider_uses_cli_output(monkeypatch, tmp_path):
+    cli_stub = _create_stub_codex_cli(tmp_path)
+    monkeypatch.setattr(codex_provider.shutil, "which", lambda executable: str(cli_stub))
+    monkeypatch.setenv("CODEX_CLI_TIMEOUT", "5")
+
+    provider = CodexProvider()
+
+    result = provider.generate_code("print('hello world')")
+
+    assert "Generated code" in result
+    assert "print('hello world')" in result
+
+
+def test_codex_provider_falls_back_when_cli_fails(monkeypatch, tmp_path):
+    cli_stub = _create_stub_codex_cli(tmp_path, exit_code=1)
+    monkeypatch.setattr(codex_provider.shutil, "which", lambda executable: str(cli_stub))
+
+    fallback_guard = types.SimpleNamespace(called=False)
+
+    def _fallback(self, prompt: str) -> str:
+        fallback_guard.called = True
+        return "fallback-result"
+
+    monkeypatch.setattr(OpenAIProvider, "generate_code", _fallback)
+
+    provider = CodexProvider()
+
+    result = provider.generate_code("print('fallback')")
+
+    assert result == "fallback-result"
+    assert fallback_guard.called
