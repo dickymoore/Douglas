@@ -1,6 +1,3 @@
-from pathlib import Path
-
-
 from douglas.cadence_manager import CadenceManager, should_run_step
 from douglas.sprint_manager import SprintManager
 

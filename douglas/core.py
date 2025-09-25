@@ -101,6 +101,8 @@ class Douglas:
         "per_sprint",
     }
 
+    DEFAULT_ITERATION_LIMIT = 1000
+
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
     DEFAULT_INIT_TEMPLATE: Dict[str, Any] = {
@@ -572,22 +574,24 @@ class Douglas:
             candidate = loop_config.get("iterations")
 
         if candidate is None:
-            return sys.maxsize
+            return self.DEFAULT_ITERATION_LIMIT
 
         try:
             value = int(candidate)
         except (TypeError, ValueError):
             logger.warning(
-                "Invalid loop iteration limit '%s'; defaulting to 1 iteration.",
+                "Invalid loop iteration limit '%s'; defaulting to %d iterations.",
                 candidate,
+                self.DEFAULT_ITERATION_LIMIT,
             )
-            return 1
+            return self.DEFAULT_ITERATION_LIMIT
 
         if value <= 0:
             logger.warning(
-                "loop iteration limit must be positive; defaulting to 1000 iterations."
+                "loop iteration limit must be positive; defaulting to %d iterations.",
+                self.DEFAULT_ITERATION_LIMIT,
             )
-            return 1000
+            return self.DEFAULT_ITERATION_LIMIT
 
         return value
 
@@ -1050,7 +1054,6 @@ class Douglas:
 
         results: List[bool] = []
         for condition in exit_conditions:
-MERGE_CONFLICT< feature/codex
             satisfied = self._evaluate_exit_condition(condition, executed_steps)
             results.append(satisfied)
 
@@ -1062,29 +1065,44 @@ MERGE_CONFLICT< feature/codex
     def _evaluate_exit_condition(
         self, condition: str, executed_steps: List[str]
     ) -> bool:
-        if condition == "sprint_demo_complete":
+        normalized = condition.strip().lower()
+        executed_lookup = {str(step).strip().lower() for step in executed_steps}
+
+        if normalized == "sprint_demo_complete":
             return self.sprint_manager.has_step_run("demo")
-        if condition == "tests_pass":
+        if normalized == "tests_pass":
+            if "test" not in executed_lookup:
+                return False
             return self._loop_outcomes.get("test") is True
-        if condition == "lint_pass":
+        if normalized == "lint_pass":
+            if "lint" not in executed_lookup:
+                return False
             return self._loop_outcomes.get("lint") is True
-        if condition == "typecheck_pass":
+        if normalized == "typecheck_pass":
+            if "typecheck" not in executed_lookup:
+                return False
             return self._loop_outcomes.get("typecheck") is True
-        if condition == "local_checks_pass":
+        if normalized == "local_checks_pass":
+            if "local_checks" not in executed_lookup:
+                return False
             return self._loop_outcomes.get("local_checks") is True
-        if condition == "push_complete":
+        if normalized == "push_complete":
+            if "push" not in executed_lookup:
+                return False
             return self._loop_outcomes.get("push") is True
-        if condition == "pr_created":
+        if normalized == "pr_created":
+            if "pr" not in executed_lookup:
+                return False
             return self._loop_outcomes.get("pr") is True
-        if condition == "ci_pass":
+        if normalized == "ci_pass":
             return self._ci_status == "success"
-        if condition == "feature_delivery_complete":
+        if normalized == "feature_delivery_complete":
             return self._feature_delivery_complete()
-        if condition == "all_work_complete":
+        if normalized == "all_work_complete":
             return self._all_work_complete()
-        if condition == "all_features_delivered":
+        if normalized == "all_features_delivered":
             return self._all_features_delivered()
-        if condition == "feature_delivery_goal":
+        if normalized == "feature_delivery_goal":
             return self._feature_delivery_goal_met()
 
         logger.debug("Unknown exit condition '%s' treated as unsatisfied.", condition)
@@ -1149,36 +1167,17 @@ MERGE_CONFLICT< feature/codex
     def _iteration_had_progress(
         self, executed_steps: List[str], baseline_completed_features: int
     ) -> bool:
+        executed_lookup = {str(step).strip().lower() for step in executed_steps}
         progress_steps = ("generate", "commit", "push", "pr")
         for name in progress_steps:
-            if self._loop_outcomes.get(name) is True:
-MERGE_CONFLICT=
-            if (
-                condition == "sprint_demo_complete"
-                and self.sprint_manager.has_step_run("demo")
-            ):
+            if name in executed_lookup and self._loop_outcomes.get(name) is True:
                 return True
-            if condition == "tests_pass" and self._loop_outcomes.get("test") is True:
+
+        supporting_steps = ("test", "lint", "typecheck", "local_checks")
+        for name in supporting_steps:
+            if name in executed_lookup and self._loop_outcomes.get(name) is True:
                 return True
-            if condition == "lint_pass" and self._loop_outcomes.get("lint") is True:
-                return True
-            if (
-                condition == "typecheck_pass"
-                and self._loop_outcomes.get("typecheck") is True
-            ):
-                return True
-            if (
-                condition == "local_checks_pass"
-                and self._loop_outcomes.get("local_checks") is True
-            ):
-                return True
-            if condition == "push_complete" and self._loop_outcomes.get("push") is True:
-                return True
-            if condition == "pr_created" and self._loop_outcomes.get("pr") is True:
-                return True
-            if condition == "ci_pass" and self._ci_status == "success":
-MERGE_CONFLICT> main
-                return True
+
         if len(self.sprint_manager.completed_features) > baseline_completed_features:
             return True
         return False
@@ -1409,7 +1408,23 @@ MERGE_CONFLICT> main
             )
             print(message)
             self._loop_outcomes["plan"] = summary_details
-            return StepExecutionResult(True, plan_result.created_backlog, None, already_recorded)
+            reason_key = (plan_result.reason or "").strip().lower()
+            # Explicit set of skip reasons; add more as needed
+            skip_reasons = {"", "no_llm", "existing_backlog", "skipped", "skipped_due_to_error"}
+            is_skip = (
+                not plan_result.created_backlog
+                and reason_key in skip_reasons
+            )
+            executed = plan_result.created_backlog or not is_skip
+            success = plan_result.created_backlog or is_skip
+            failure_details = None if success else message
+            return StepExecutionResult(
+                executed,
+                success,
+                None,
+                already_recorded,
+                failure_details=failure_details,
+            )
 
         if step_name == "lint":
             print("Running lint step...")
