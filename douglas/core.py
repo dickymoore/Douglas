@@ -1409,10 +1409,11 @@ class Douglas:
             print(message)
             self._loop_outcomes["plan"] = summary_details
             reason_key = (plan_result.reason or "").strip().lower()
-            skip_reasons = {"", "no_llm", "existing_backlog"}
+            # Explicit set of skip reasons; add more as needed
+            skip_reasons = {"", "no_llm", "existing_backlog", "skipped", "skipped_due_to_error"}
             is_skip = (
                 not plan_result.created_backlog
-                and (reason_key in skip_reasons or "skip" in reason_key)
+                and reason_key in skip_reasons
             )
             executed = plan_result.created_backlog or not is_skip
             success = plan_result.created_backlog or is_skip
