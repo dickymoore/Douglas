@@ -3,7 +3,7 @@ from datetime import datetime
 
 try:
     from fastapi.testclient import TestClient
-except Exception:  # pragma: no cover - FastAPI not installed
+except ImportError:  # pragma: no cover - FastAPI not installed
     TestClient = None
 
 from douglas.dashboard.server import create_app, render_static_dashboard
