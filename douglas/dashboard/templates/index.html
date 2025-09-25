@@ -65,7 +65,7 @@
         }
         let html = '<table><thead><tr><th>Status</th><th>History</th></tr></thead><tbody>';
         statuses.forEach((status) => {
-          const trail = flow[status].map(([date, count]) => `${new Date(date).toLocaleDateString()}: ${count}`).join('<br/>');
+          const trail = flow[status].map(({date, count}) => `${new Date(date).toLocaleDateString()}: ${count}`).join('<br/>');
           html += `<tr><td>${status}</td><td>${trail}</td></tr>`;
         });
         html += '</tbody></table>';
