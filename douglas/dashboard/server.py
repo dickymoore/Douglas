@@ -26,12 +26,12 @@ from douglas.logging import get_logger
 logger = get_logger(__name__)
 
 
-def create_app(state_root: Path | str = Path(".")) -> FastAPI:
+def create_app(state_root: Path | str = Path(".")) -> FastAPI | _FallbackDashboard:
     """Create a FastAPI app serving Douglas dashboard data."""
 
     root_path = Path(state_root)
     if FastAPI is None:  # pragma: no cover - fallback without FastAPI installed
-        return _FallbackDashboard(root_path)  # type: ignore[return-value]
+        return _FallbackDashboard(root_path)
     app = FastAPI(title="Douglas Dashboard", version="1.0.0")
 
     @app.get("/healthz")

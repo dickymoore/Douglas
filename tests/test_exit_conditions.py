@@ -1,12 +1,22 @@
 from __future__ import annotations
 
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import yaml
+
 from douglas.core import Douglas
+from douglas.pipelines import test as testpipe
 
 
 def _make_orchestrator(loop_overrides: dict | None = None) -> Douglas:
-    config = {
+    config: dict[str, Any] = {
         "project": {"name": "Test", "language": "python"},
-        "ai": {"default_provider": "codex", "providers": {"codex": {"provider": "codex"}}},
+        "ai": {
+            "default_provider": "codex",
+            "providers": {"codex": {"provider": "codex"}},
+        },
         "loop": {
             "steps": [],
             "exit_condition_mode": "all",
@@ -17,15 +27,62 @@ def _make_orchestrator(loop_overrides: dict | None = None) -> Douglas:
         config["loop"].update(loop_overrides)
     return Douglas(config_data=config)
 
-MERGE_CONFLICT< feature/codex
-MERGE_CONFLICT=
+
+def _init_repo(
+    tmp_path: Path,
+    *,
+    steps: list[dict[str, Any]],
+    exit_conditions: list[str],
+    max_iterations: int | None = None,
+) -> Path:
+    subprocess.run(
+        ["git", "init"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "tester@example.com"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test Runner"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    config: dict[str, Any] = {
+        "project": {"name": "Test", "language": "python"},
+        "ai": {
+            "default_provider": "codex",
+            "providers": {"codex": {"provider": "codex"}},
+        },
+        "loop": {
+            "steps": steps,
+            "exit_condition_mode": "all",
+            "exit_conditions": exit_conditions,
+        },
+    }
+    if max_iterations is not None:
+        config["loop"]["max_iterations"] = max_iterations
+
     config_path = tmp_path / "douglas.yaml"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 
     (tmp_path / "README.md").write_text("Initial content\n", encoding="utf-8")
 
     subprocess.run(
-        ["git", "add", "."], cwd=tmp_path, check=True, capture_output=True, text=True
+        ["git", "add", "."],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
     )
     subprocess.run(
         ["git", "commit", "-m", "chore: initial"],
@@ -113,7 +170,17 @@ def test_loop_repeats_until_iteration_limit(monkeypatch, tmp_path):
 
     def fake_run_tests():
         test_calls.append("test")
-MERGE_CONFLICT> main
+
+    monkeypatch.setattr(testpipe, "run_tests", fake_run_tests)
+
+    douglas = Douglas(config_path)
+    douglas.run_loop()
+
+    assert test_calls == [
+        "test",
+        "test",
+    ], "Loop should run for the configured iteration limit when exit conditions are absent."
+
 
 def test_all_features_delivered_requires_release_and_completion():
     orchestrator = _make_orchestrator()
@@ -122,17 +189,10 @@ def test_all_features_delivered_requires_release_and_completion():
 
     assert orchestrator._all_features_delivered() is True
 
-MERGE_CONFLICT< feature/codex
     orchestrator = _make_orchestrator()
     orchestrator.sprint_manager.completed_features.add("feature-1")
     orchestrator.sprint_manager.pending_events["feature"] = 1
     orchestrator._loop_outcomes["push"] = True
-MERGE_CONFLICT=
-    assert test_calls == [
-        "test",
-        "test",
-    ], "Loop should run for the configured iteration limit when exit conditions are absent."
-MERGE_CONFLICT> main
 
     assert orchestrator._all_features_delivered() is False
 

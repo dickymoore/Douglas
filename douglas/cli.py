@@ -10,7 +10,7 @@ import typer
 
 from douglas import __version__
 from douglas.logging_utils import configure_logging
-from douglas.core import Douglas, TEMPLATE_ROOT
+from douglas.core import Douglas
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
 from douglas.providers.copilot_provider import CopilotProvider
