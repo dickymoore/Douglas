@@ -1193,14 +1193,6 @@ class Douglas:
             )
             self._soft_stop_pending = True
 
-    def _all_features_delivered(self) -> bool:
-        outstanding = self.sprint_manager.outstanding_features()
-        if outstanding > 0:
-            return False
-        if not self.sprint_manager.completed_features:
-            return False
-        return self._loop_outcomes.get("push") is True
-
     def _execute_step(
         self,
         step_name: str,
