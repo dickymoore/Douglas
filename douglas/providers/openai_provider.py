@@ -119,7 +119,9 @@ class OpenAIProvider(LLMProvider):
             return self._fallback(prompt)
 
         if not text:
-            logger.warning("Received empty response from OpenAI. Falling back to stub output.")
+            logger.warning(
+                "Received empty response from OpenAI. Falling back to stub output."
+            )
             return self._fallback(prompt)
 
         return text
@@ -437,6 +439,8 @@ class OpenAIProvider(LLMProvider):
         return ""
 
     def _fallback(self, prompt: str) -> str:
-        logger.warning("OpenAI provider fallback triggered; returning placeholder output.")
+        logger.warning(
+            "OpenAI provider fallback triggered; returning placeholder output."
+        )
         logger.debug("OpenAI fallback prompt preview", extra={"prompt": prompt[:200]})
         return "# OpenAI API unavailable; no code generated."

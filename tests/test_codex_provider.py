@@ -125,8 +125,8 @@ def test_codex_provider_reads_cli_auth_file(monkeypatch, tmp_path, capsys):
     [
         ("token-value\n", "", "token-value"),
         ("Access token: another-token\n", "", "another-token"),
-        ("{\"token\": \"json-token\"}\n", "", "json-token"),
-        ("", "{\"access_token\": \"stderr-token\"}", "stderr-token"),
+        ('{"token": "json-token"}\n', "", "json-token"),
+        ("", '{"access_token": "stderr-token"}', "stderr-token"),
     ],
 )
 def test_parse_cli_token(stdout: str, stderr: str, expected: str) -> None:
@@ -137,7 +137,9 @@ def test_parse_cli_token_rejects_noise() -> None:
     assert CodexProvider._parse_cli_token("Please login", "") is None
 
 
-def _create_stub_codex_cli(tmp_path: Path, *, exit_code: int = 0, body: str = "Generated code") -> Path:
+def _create_stub_codex_cli(
+    tmp_path: Path, *, exit_code: int = 0, body: str = "Generated code"
+) -> Path:
     script = tmp_path / "codex"
     script.write_text(
         textwrap.dedent(
@@ -170,7 +172,9 @@ sys.exit({exit_code})
 
 def test_codex_provider_uses_cli_output(monkeypatch, tmp_path):
     cli_stub = _create_stub_codex_cli(tmp_path)
-    monkeypatch.setattr(codex_provider.shutil, "which", lambda executable: str(cli_stub))
+    monkeypatch.setattr(
+        codex_provider.shutil, "which", lambda executable: str(cli_stub)
+    )
     monkeypatch.setenv("CODEX_CLI_TIMEOUT", "5")
 
     provider = CodexProvider()
@@ -183,7 +187,9 @@ def test_codex_provider_uses_cli_output(monkeypatch, tmp_path):
 
 def test_codex_provider_falls_back_when_cli_fails(monkeypatch, tmp_path):
     cli_stub = _create_stub_codex_cli(tmp_path, exit_code=1)
-    monkeypatch.setattr(codex_provider.shutil, "which", lambda executable: str(cli_stub))
+    monkeypatch.setattr(
+        codex_provider.shutil, "which", lambda executable: str(cli_stub)
+    )
 
     fallback_guard = types.SimpleNamespace(called=False)
 

@@ -76,14 +76,18 @@ class GeminiProvider(LLMProvider):
         try:
             response = self._client.generate_content(prompt)
         except Exception as exc:  # pragma: no cover - network/SDK failures
-            logger.warning("Gemini request failed (%s). Falling back to stub output.", exc)
+            logger.warning(
+                "Gemini request failed (%s). Falling back to stub output.", exc
+            )
             return self._fallback(prompt)
 
         text = self._extract_text(response)
         if text:
             return text
 
-        logger.warning("Received empty response from Gemini. Falling back to stub output.")
+        logger.warning(
+            "Received empty response from Gemini. Falling back to stub output."
+        )
         return self._fallback(prompt)
 
     def _extract_text(self, response: Any) -> str:

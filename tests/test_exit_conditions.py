@@ -128,9 +128,9 @@ def test_exit_condition_allows_remaining_steps(monkeypatch, tmp_path):
     douglas.run_loop()
 
     assert test_calls == ["test"], "Test step should execute exactly once."
-    assert push_calls == [
-        "push"
-    ], "Push step should still execute despite exit condition."
+    assert push_calls == ["push"], (
+        "Push step should still execute despite exit condition."
+    )
 
 
 def test_exit_condition_stops_additional_iterations(monkeypatch, tmp_path):
@@ -179,7 +179,9 @@ def test_loop_repeats_until_iteration_limit(monkeypatch, tmp_path):
     assert test_calls == [
         "test",
         "test",
-    ], "Loop should run for the configured iteration limit when exit conditions are absent."
+    ], (
+        "Loop should run for the configured iteration limit when exit conditions are absent."
+    )
 
 
 def test_all_features_delivered_requires_release_and_completion():

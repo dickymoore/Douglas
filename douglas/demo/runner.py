@@ -70,7 +70,9 @@ class DemoRunner:
         (self.workspace / "reports").mkdir(exist_ok=True)
 
     @log_action("demo-run", logger_factory=lambda: logger)
-    def run(self, script_path: Path | str, *, output_dir: Path | str | None = None) -> DemoReport:
+    def run(
+        self, script_path: Path | str, *, output_dir: Path | str | None = None
+    ) -> DemoReport:
         script = self._load_script(Path(script_path))
         report_dir = Path(output_dir or (self.workspace / "reports" / script["name"]))
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -115,7 +117,9 @@ class DemoRunner:
         payload.setdefault("steps", [])
         return payload
 
-    def _launch_sandbox(self, config: dict[str, Any], *, cwd: Path) -> subprocess.Popen[str]:
+    def _launch_sandbox(
+        self, config: dict[str, Any], *, cwd: Path
+    ) -> subprocess.Popen[str]:
         command = config.get("command")
         if not command:
             raise ValueError("Sandbox configuration requires a command")
@@ -145,7 +149,11 @@ class DemoRunner:
             else:
                 raise ValueError(f"Unknown demo step type: {step_type}")
             status = "ok" if result["returncode"] == 0 else "failed"
-            metadata = {k: v for k, v in result.items() if k not in {"stdout", "stderr", "returncode"}}
+            metadata = {
+                k: v
+                for k, v in result.items()
+                if k not in {"stdout", "stderr", "returncode"}
+            }
             return DemoStepResult(
                 name=name,
                 step_type=step_type,
@@ -200,7 +208,9 @@ class DemoRunner:
             body = json.dumps(data).encode("utf-8")
             req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, data=body, timeout=request.get("timeout", 30)) as response:
+            with urllib.request.urlopen(
+                req, data=body, timeout=request.get("timeout", 30)
+            ) as response:
                 payload = response.read().decode("utf-8")
                 return {
                     "stdout": payload,
@@ -268,7 +278,7 @@ def _escape(value: str) -> str:
         value.replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
-        .replace("\"", "&quot;")
+        .replace('"', "&quot;")
     )
 
 

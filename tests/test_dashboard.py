@@ -18,14 +18,18 @@ def _seed_state(root):
     inbox_dir = root / "inbox"
     inbox_dir.mkdir(parents=True, exist_ok=True)
     (inbox_dir / "question1.yaml").write_text("question: foo\n", encoding="utf-8")
-    (inbox_dir / "question2.yaml").write_text("question: bar\nanswer: baz\n", encoding="utf-8")
+    (inbox_dir / "question2.yaml").write_text(
+        "question: bar\nanswer: baz\n", encoding="utf-8"
+    )
 
     state_dir = root / ".douglas" / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
     history = [
         {"date": datetime.utcnow().isoformat(), "remaining": 5, "completed": 2},
     ]
-    (state_dir / "sprint_history.json").write_text(json.dumps(history), encoding="utf-8")
+    (state_dir / "sprint_history.json").write_text(
+        json.dumps(history), encoding="utf-8"
+    )
     flow = {"in_progress": [{"date": datetime.utcnow().isoformat(), "count": 2}]}
     (state_dir / "cumulative_flow.json").write_text(json.dumps(flow), encoding="utf-8")
 
