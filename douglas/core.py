@@ -168,7 +168,7 @@ class Douglas:
                     "name": "plan",
                     "role": "ProductOwner",
                     "activity": "backlog_refinement",
-                    "cadence": "per_sprint",
+                    "cadence": "daily",
                 },
                 {
                     "name": "generate",

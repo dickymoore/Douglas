@@ -12,7 +12,7 @@ ai:
   prompt: "system_prompt.md"
 planning:
   enabled: true
-  sprint_zero_only: false
+  sprint_zero_only: true
   backlog_file: "ai-inbox/backlog/pre-features.yaml"
   allow_overwrite: false
   goal: "Facilitate Sprint Zero by brainstorming epics, features, user stories, and tasks before coding begins."
@@ -53,7 +53,7 @@ loop:
     - name: plan
       role: ProductOwner
       activity: backlog_refinement
-      cadence: per_sprint
+      cadence: daily
     - name: generate
       role: Developer
       activity: development

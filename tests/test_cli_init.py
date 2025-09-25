@@ -68,6 +68,12 @@ def test_cli_init_without_config(monkeypatch, tmp_path):
     charters = planning.get("charters", {})
     assert charters.get("enabled", True) is True
 
+    plan_step = next(
+        (step for step in scaffold_config["loop"]["steps"] if step["name"] == "plan"),
+        {},
+    )
+    assert plan_step.get("cadence") == "daily"
+
 
 def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):
     sentinel_config = {"from_factory": True}
