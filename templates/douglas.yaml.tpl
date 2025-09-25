@@ -12,7 +12,7 @@ ai:
   prompt: "system_prompt.md"
 planning:
   enabled: true
-  sprint_zero_only: true
+  sprint_zero_only: false
   backlog_file: "ai-inbox/backlog/pre-features.yaml"
   allow_overwrite: false
   goal: "Facilitate Sprint Zero by brainstorming epics, features, user stories, and tasks before coding begins."
