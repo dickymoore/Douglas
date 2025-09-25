@@ -1212,18 +1212,6 @@ class Douglas:
             return False
         return self._loop_outcomes.get("push") is True and self._loop_outcomes.get("test") is True
 
-    def _resolve_feature_goal(self) -> Optional[int]:
-        loop_config = self.config.get("loop", {}) or {}
-        goal = loop_config.get("feature_goal")
-        if goal is None:
-            return None
-        try:
-            value = int(goal)
-        except (TypeError, ValueError):
-            logger.warning("Ignoring invalid feature_goal '%s'; expected integer.", goal)
-            return None
-        return value if value > 0 else None
-
     def _execute_step(
         self,
         step_name: str,
