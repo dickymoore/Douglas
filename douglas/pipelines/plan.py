@@ -5,7 +5,7 @@ from __future__ import annotations
 import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -26,6 +26,7 @@ class PlanContext:
     sprint_day: int
     planning_config: Dict[str, Any]
     llm: Any
+    agent_roles: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -83,8 +84,24 @@ def run_plan(context: PlanContext) -> PlanResult:
     backlog_data = _parse_backlog(raw_response)
 
     if backlog_data is None:
-        logger.warning("Planning response could not be parsed; writing raw output as fallback.")
+        if _looks_like_cli_error(raw_response):
+            logger.warning(
+                "Planning response indicates CLI failure; preserving existing backlog."
+            )
+            return PlanResult(
+                False,
+                backlog_path,
+                existing_backlog or None,
+                raw_response,
+                reason="llm_error",
+            )
+
+        logger.warning(
+            "Planning response could not be parsed; writing raw output as fallback."
+        )
         backlog_data = {"raw": raw_response}
+
+    fallback_used = False
 
     if existing_backlog:
         if allow_overwrite:
@@ -94,6 +111,15 @@ def run_plan(context: PlanContext) -> PlanResult:
             status = "merged"
     else:
         status = "created"
+
+    backlog_data, fallback_used = _ensure_structured_backlog(
+        backlog_data,
+        project_name=context.project_name,
+        project_description=context.project_description,
+    )
+
+    if fallback_used and status == "created":
+        status = "fallback"
 
     backlog_path.parent.mkdir(parents=True, exist_ok=True)
     backlog_path.write_text(
@@ -121,6 +147,7 @@ def run_plan(context: PlanContext) -> PlanResult:
             llm=llm,
             backlog_data=backlog_data,
             config=charters_cfg,
+            agent_roles=context.agent_roles,
         )
 
     return PlanResult(
@@ -272,6 +299,7 @@ def _generate_charters(
     llm: Any,
     backlog_data: Dict[str, Any],
     config: Dict[str, Any],
+    agent_roles: Optional[List[str]] = None,
 ) -> Dict[str, Path]:
     directory = config.get("directory", "ai-inbox/charters")
     allow_overwrite = bool(config.get("allow_overwrite", False))
@@ -283,7 +311,7 @@ def _generate_charters(
     charter_docs = _parse_charter_documents(raw_charters)
 
     if not charter_docs:
-        charter_docs = _default_charter_documents(backlog_yaml)
+        charter_docs = _default_charter_documents(backlog_yaml, agent_roles)
 
     charters_dir.mkdir(parents=True, exist_ok=True)
     written: Dict[str, Path] = {}
@@ -340,15 +368,70 @@ def _parse_charter_documents(raw_text: str) -> Dict[str, str]:
     return docs
 
 
-def _default_charter_documents(backlog_yaml: str) -> Dict[str, str]:
+def _default_charter_documents(
+    backlog_yaml: str, agent_roles: Optional[List[str]] = None
+) -> Dict[str, str]:
     skeleton = textwrap.dedent(
         """# Team Charter
 
         This charter will be elaborated during Sprint Zero.
         """
     ).strip()
+    roles: List[str] = []
+
+    def _normalise_role(role: str) -> Optional[str]:
+        raw = role.strip()
+        if not raw:
+            return None
+        if any(char.isupper() for char in raw):
+            normalised = raw
+        else:
+            tokens = raw.replace("_", " ").replace("-", " ").strip()
+            special = {
+                "devops": "DevOps",
+                "qa": "QA",
+                "tester": "Tester",
+                "product owner": "Product Owner",
+                "scrum master": "Scrum Master",
+                "product_manager": "Product Manager",
+                "product manager": "Product Manager",
+                "business analyst": "Business Analyst",
+                "ba": "Business Analyst",
+                "account manager": "Account Manager",
+            }
+            key = tokens.lower()
+            normalised = special.get(key) or tokens.title()
+        return normalised
+
+    if agent_roles:
+        for role in agent_roles:
+            if not isinstance(role, str):
+                continue
+            display = _normalise_role(role)
+            if display:
+                roles.append(display)
+
+    if not roles:
+        roles = [
+            "Product Owner",
+            "Developer",
+            "Tester",
+            "DevOps",
+            "Account Manager",
+        ]
+
+    # Remove duplicates while preserving order.
+    seen = set()
+    unique_roles = []
+    for role in roles:
+        if role not in seen:
+            seen.add(role)
+            unique_roles.append(role)
+
+    agent_lines = "\n".join(f"- {role}" for role in unique_roles)
+
     return {
-        "agents_md": "# Agile Agents\n\n- Product Owner\n- Developer\n- Tester\n- DevOps\n",
+        "agents_md": "# Agile Agents\n\n" + agent_lines + "\n",
         "agent_charter_md": skeleton,
         "coding_guidelines_md": "# Coding Guidelines\n\n- Follow PEP 8\n- Maintain automated tests\n",
         "working_agreements_md": "# Working Agreements\n\n- Daily async standup\n- Pull request reviews within 24 hours\n",
@@ -363,3 +446,123 @@ def _charter_filename(key: str) -> Optional[str]:
         "working_agreements_md": "WORKING_AGREEMENTS.md",
     }
     return mapping.get(key)
+
+
+def _looks_like_cli_error(raw_text: str) -> bool:
+    if not raw_text:
+        return False
+    lowered = raw_text.lower()
+    indicators = [
+        "error:",
+        "stream error",
+        "401 unauthorized",
+        "403 forbidden",
+        "exceeded retry limit",
+    ]
+    return any(indicator in lowered for indicator in indicators)
+
+
+def _ensure_structured_backlog(
+    backlog_data: Dict[str, Any],
+    *,
+    project_name: str,
+    project_description: str,
+) -> Tuple[Dict[str, Any], bool]:
+    epics = backlog_data.get("epics")
+    features = backlog_data.get("features")
+
+    has_epics = isinstance(epics, list) and any(isinstance(item, dict) for item in epics)
+    has_features = isinstance(features, list) and any(
+        isinstance(item, dict) for item in features
+    )
+
+    if has_epics and has_features:
+        return backlog_data, False
+
+    logger.info(
+        "Planning response lacked structured backlog entries; generating fallback template."
+    )
+    fallback = _fallback_backlog(project_name, project_description)
+
+    # Preserve the raw response for debugging if it existed.
+    if backlog_data:
+        fallback.setdefault("raw", backlog_data)
+
+    return fallback, True
+
+
+def _fallback_backlog(project_name: str, project_description: str) -> Dict[str, Any]:
+    project = project_name or "New Product"
+    description = project_description or "Initial MVP scope"
+
+    epic_id = "EP-1"
+    feature_id = "FE-1"
+    story_id = "US-1"
+    task_id = "TK-1"
+
+    return {
+        "epics": [
+            {
+                "id": epic_id,
+                "name": f"{project} foundation",
+                "objective": f"Establish the core experience for {project}.",
+                "success_metrics": [
+                    "Playable end-to-end demo",
+                    "Positive user feedback on core mechanics",
+                ],
+                "features": [feature_id],
+            }
+        ],
+        "features": [
+            {
+                "id": feature_id,
+                "name": "MVP gameplay loop",
+                "epic": epic_id,
+                "narrative": (
+                    "As a player I can experience the core {project} gameplay so I understand the value proposition."
+                ).replace("{project}", project.lower()),
+                "business_value": "Validate the concept with real users.",
+                "stories": [story_id],
+            }
+        ],
+        "stories": [
+            {
+                "id": story_id,
+                "name": "Implement baseline mechanics",
+                "feature": feature_id,
+                "description": description,
+                "acceptance_criteria": [
+                    "Core loop can be exercised through UI",
+                    "Key rules are enforced",
+                    "Gameplay is logged for analytics",
+                ],
+                "tasks": [task_id],
+            }
+        ],
+        "tasks": [
+            {
+                "id": task_id,
+                "story": story_id,
+                "description": "Set up skeleton modules, data models, and initial tests.",
+                "estimate": 3,
+            }
+        ],
+        "roadmap": [
+            {
+                "sprint": 1,
+                "focus": "Deliver MVP gameplay foundation",
+                "expected_outcomes": ["Playable prototype", "Feedback captured"],
+            },
+            {
+                "sprint": 2,
+                "focus": "Refine UX and extend rules",
+                "expected_outcomes": ["Improved UI", "Extended mechanics"],
+            },
+        ],
+        "dependencies": [
+            {
+                "id": "DEP-1",
+                "description": "Access to design assets and platform credentials.",
+            }
+        ],
+    }

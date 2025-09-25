@@ -436,6 +436,22 @@ class SprintManager:
     # ------------------------------------------------------------------
     # Utility helpers
     # ------------------------------------------------------------------
+    def outstanding_features(self) -> int:
+        return self._available_event_for_consumer("feature", "push")
+
+    def outstanding_bugs(self) -> int:
+        return self._available_event_for_consumer("bug", "push")
+
+    def outstanding_epics(self) -> int:
+        return self._available_event_for_consumer("epic", "push")
+
+    def outstanding_work_summary(self) -> Dict[str, int]:
+        return {
+            "feature": self.outstanding_features(),
+            "bug": self.outstanding_bugs(),
+            "epic": self.outstanding_epics(),
+        }
+
     def _available_event_for_consumer(self, event_type: str, consumer: str) -> int:
         pending = self.pending_events.get(event_type, 0)
         consumed = self.event_consumption[consumer][event_type]

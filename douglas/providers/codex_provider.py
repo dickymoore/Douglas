@@ -59,7 +59,7 @@ class CodexProvider(OpenAIProvider):
 
         self._cli_path = resolved_cli_path
         self._cli_token = cli_token
-        self._cli_timeout_seconds = int(os.getenv("CODEX_CLI_TIMEOUT", "60"))
+        self._cli_timeout_seconds = int(os.getenv("CODEX_CLI_TIMEOUT", "120"))
         self._cli_heartbeat_seconds = int(os.getenv("CODEX_CLI_HEARTBEAT", "10"))
 
     def _resolve_cli_path(self, cli_path: Optional[str]) -> Optional[str]:
@@ -88,129 +88,143 @@ class CodexProvider(OpenAIProvider):
                 auth_file = candidate
                 break
 
-        with tempfile.TemporaryDirectory(prefix="codex-cli-") as codex_home:
-            env = os.environ.copy()
-            env.setdefault("CODEX_HOME", codex_home)
-            if auth_file is not None:
-                env.setdefault("CODEX_AUTH_FILE", str(auth_file))
+        env = os.environ.copy()
+        temp_home: Optional[tempfile.TemporaryDirectory] = None
+        if auth_file is not None:
+            env.setdefault("CODEX_AUTH_FILE", str(auth_file))
+        if "CODEX_HOME" not in env:
+            if auth_file is not None and auth_file.parent.exists():
+                env["CODEX_HOME"] = str(auth_file.parent)
+            else:
+                temp_home = tempfile.TemporaryDirectory(prefix="codex-cli-")
+                env["CODEX_HOME"] = temp_home.name
 
-            command = [
-                self._cli_path,
-                "exec",
-                "-",
-                "--output-last-message",
-                str(last_message_path),
-                "--color",
-                "never",
-                "--full-auto",
-                "--skip-git-repo-check",
-            ]
-            logger.info(
-                "Launching Codex CLI: %s (CODEX_HOME=%s, timeout=%ss)",
-                shlex.join(command),
-                codex_home,
-                self._cli_timeout_seconds,
+        command = [
+            self._cli_path,
+            "exec",
+            "-",
+            "--output-last-message",
+            str(last_message_path),
+            "--color",
+            "never",
+            "--full-auto",
+            "--skip-git-repo-check",
+        ]
+        logger.info(
+            "Launching Codex CLI: %s (CODEX_HOME=%s, timeout=%ss)",
+            shlex.join(command),
+            env.get("CODEX_HOME", os.getenv("CODEX_HOME", "<unset>")),
+            self._cli_timeout_seconds,
+        )
+
+        try:
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
             )
+        except FileNotFoundError:
+            last_message_path.unlink(missing_ok=True)
+            if temp_home is not None:
+                temp_home.cleanup()
+            return None
 
-            try:
-                process = subprocess.Popen(
-                    command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    env=env,
-                )
-            except FileNotFoundError:
-                last_message_path.unlink(missing_ok=True)
-                return None
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
+        communicated = False
+        start_time = time.monotonic()
 
-            stdout_chunks: list[str] = []
-            stderr_chunks: list[str] = []
-            communicated = False
-            start_time = time.monotonic()
-
-            try:
-                while True:
-                    try:
-                        stdout, stderr = process.communicate(
-                            prompt if not communicated else None,
-                            timeout=self._cli_heartbeat_seconds,
-                        )
-                        communicated = True
-                        stdout_chunks.append(stdout or "")
-                        stderr_chunks.append(stderr or "")
-                        break
-                    except subprocess.TimeoutExpired:
-                        communicated = True
-                        elapsed = time.monotonic() - start_time
-                        logger.info(
-                            "Codex CLI still running (elapsed %.1fs)",
+        try:
+            while True:
+                try:
+                    stdout, stderr = process.communicate(
+                        prompt if not communicated else None,
+                        timeout=self._cli_heartbeat_seconds,
+                    )
+                    communicated = True
+                    stdout_chunks.append(stdout or "")
+                    stderr_chunks.append(stderr or "")
+                    break
+                except subprocess.TimeoutExpired:
+                    communicated = True
+                    elapsed = time.monotonic() - start_time
+                    logger.info(
+                        "Codex CLI still running (elapsed %.1fs)",
+                        elapsed,
+                    )
+                    if elapsed >= self._cli_timeout_seconds:
+                        process.kill()
+                        try:
+                            process.wait(timeout=1)
+                        except Exception:
+                            pass
+                        logger.warning(
+                            "Codex CLI timed out after %.1fs; falling back to OpenAI provider.",
                             elapsed,
                         )
-                        if elapsed >= self._cli_timeout_seconds:
-                            process.kill()
-                            try:
-                                process.wait(timeout=1)
-                            except Exception:
-                                pass
-                            logger.warning(
-                                "Codex CLI timed out after %.1fs; falling back to OpenAI provider.",
-                                elapsed,
-                            )
-                            last_message_path.unlink(missing_ok=True)
-                            return None
-                        continue
-            except Exception as exc:  # pragma: no cover - defensive
-                process.kill()
-                try:
-                    process.wait(timeout=1)
-                except Exception:
-                    pass
-                logger.warning(
-                    "Codex CLI invocation failed (%s); falling back to OpenAI provider.",
-                    exc,
-                )
-                last_message_path.unlink(missing_ok=True)
-                return None
+                        last_message_path.unlink(missing_ok=True)
+                        if temp_home is not None:
+                            temp_home.cleanup()
+                        return None
+                    continue
+        except Exception as exc:  # pragma: no cover - defensive
+            process.kill()
+            try:
+                process.wait(timeout=1)
+            except Exception:
+                pass
+            logger.warning(
+                "Codex CLI invocation failed (%s); falling back to OpenAI provider.",
+                exc,
+            )
+            last_message_path.unlink(missing_ok=True)
+            if temp_home is not None:
+                temp_home.cleanup()
+            return None
 
-            elapsed = time.monotonic() - start_time
-            stdout_text = "".join(stdout_chunks).strip()
-            stderr_text = "".join(stderr_chunks).strip()
+        elapsed = time.monotonic() - start_time
+        stdout_text = "".join(stdout_chunks).strip()
+        stderr_text = "".join(stderr_chunks).strip()
 
-            logger.info(
-                "Codex CLI finished in %.2fs with return code %s",
-                elapsed,
+        logger.info(
+            "Codex CLI finished in %.2fs with return code %s",
+            elapsed,
+            process.returncode,
+        )
+        if stdout_text:
+            logger.debug("Codex CLI stdout:\n%s", stdout_text)
+        if stderr_text:
+            logger.debug("Codex CLI stderr:\n%s", stderr_text)
+
+        if temp_home is not None:
+            temp_home.cleanup()
+
+        if process.returncode != 0:
+            logger.warning(
+                "Codex CLI exited with non-zero status (%s); falling back to OpenAI provider.",
                 process.returncode,
             )
-            if stdout_text:
-                logger.debug("Codex CLI stdout:\n%s", stdout_text)
-            if stderr_text:
-                logger.debug("Codex CLI stderr:\n%s", stderr_text)
+            last_message_path.unlink(missing_ok=True)
+            return None
 
-            if process.returncode != 0:
-                logger.warning(
-                    "Codex CLI exited with non-zero status (%s); falling back to OpenAI provider.",
-                    process.returncode,
-                )
-                last_message_path.unlink(missing_ok=True)
-                return None
+        try:
+            message = last_message_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            message = ""
+        finally:
+            last_message_path.unlink(missing_ok=True)
 
-            try:
-                message = last_message_path.read_text(encoding="utf-8").strip()
-            except OSError:
-                message = ""
-            finally:
-                last_message_path.unlink(missing_ok=True)
+        if message:
+            return message
 
-            if message:
-                return message
+        if stdout_text:
+            return stdout_text
 
-            if stdout_text:
-                return stdout_text
-
-            if stderr_text:
-                return stderr_text
+        if stderr_text:
+            return stderr_text
 
         return None
 

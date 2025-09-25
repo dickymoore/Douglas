@@ -46,7 +46,13 @@ def test_init_project_creates_python_scaffold(monkeypatch, tmp_path):
     assert scaffold_config["project"]["name"] == target_dir.name
     assert scaffold_config["project"]["language"] == "python"
     assert scaffold_config["push_policy"] == "per_feature_complete"
-    assert scaffold_config["loop"]["exit_conditions"] == ["ci_pass"]
+    loop_cfg = scaffold_config["loop"]
+    assert loop_cfg["exit_condition_mode"] == "all"
+    assert loop_cfg["exit_conditions"] == [
+        "feature_delivery_complete",
+        "sprint_demo_complete",
+    ]
+    assert loop_cfg["exhaustive"] is False
     assert [step["name"] for step in scaffold_config["loop"]["steps"]] == [
         "standup",
         "plan",
@@ -64,6 +70,13 @@ def test_init_project_creates_python_scaffold(monkeypatch, tmp_path):
     ]
     assert scaffold_config["sprint"]["length_days"] == 6
     assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
+    planning = scaffold_config.get("planning", {})
+    assert planning.get("first_day_only") is True
+    agents = scaffold_config.get("agents", {}).get("roles", [])
+    assert "Account Manager" in agents
+    accountability = scaffold_config.get("accountability", {})
+    assert accountability.get("stall_iterations") == 3
+    assert accountability.get("soft_stop") is True
 
     readme_text = (target_dir / "README.md").read_text(encoding="utf-8")
     assert "Douglas" in readme_text

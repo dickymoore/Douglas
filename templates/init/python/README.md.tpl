@@ -20,8 +20,12 @@ This project was bootstrapped with [Douglas](${douglas_readme_url}).
 - Initialise Git (`git init`) if you didn't supply `--git` during scaffolding so Douglas can inspect history and manage commits, then capture the scaffold as your first commit (`git add . && git commit -m "Initial scaffold"`).
 - The default pipelines expect `ruff`, `black`, `isort`, `mypy`, and the OpenAI SDK. They are included in `requirements-dev.txt`; rerun `make venv` after pulling updates, or install them manually inside the active venv. If a tool still reports missing, run `pip install ruff black isort mypy openai` while the venv is active.
 - Install provider SDKs (`pip install openai`, etc.) if you plan to use them directly and export the corresponding API keys. Running `python -c "import openai"` inside the venv is a quick sanity check.
-- Sprint Zero planning is enabled by default (`planning.enabled: true` in `douglas.yaml`) and runs every loop to keep the backlog fresh. Set `sprint_zero_only: true` or disable planning entirely if you prefer manual backlog grooming.
+- Sprint Zero planning is enabled by default (`planning.enabled: true` in `douglas.yaml`) and runs each loop (daily cadence) so the backlog is seeded immediately. Set `sprint_zero_only: true` or disable planning entirely if you prefer manual backlog grooming.
 - Douglas records standup notes under `ai-inbox/sprints/` each iteration. Review these alongside retrospective and demo artifacts to track progress.
 - Charter documents for the autonomous agents (`AGENTS.md`, `AGENT_CHARTER.md`, etc.) are generated in `ai-inbox/charters/` during Sprint Zero.
+- The loop continues automatically until at least one `feat:` commit has shipped and the sprint demo completes; customise `loop.exit_conditions` if you want different milestones, or set `loop.exhaustive: true` to keep iterating until all tracked work is complete.
+- To wait for multiple features, add `feature_delivery_goal: <number>` and include `feature_delivery_goal` in `loop.exit_conditions` (pair it with `tests_pass` for quality gates) so Douglas keeps looping until enough value has shipped and tests are green.
+- Structured logs are mirrored to `ai-inbox/logs/douglas.log`; set `DOUGLAS_LOG_FILE` (or pass `--log-level` at runtime) if you want a different location or verbosity for auditability.
+- The Account Manager agent monitors back-to-back no-progress iterations. Adjust `accountability.stall_iterations` or disable the feature under the `accountability` key in `douglas.yaml` if you prefer manual intervention.
 
 Refer to the Douglas README for detailed documentation and advanced workflows.

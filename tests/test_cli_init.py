@@ -58,13 +58,20 @@ def test_cli_init_without_config(monkeypatch, tmp_path):
     codex_cfg = providers.get("codex", {})
     assert codex_cfg.get("provider") == "codex"
     assert codex_cfg.get("model") == "gpt-5-codex"
-    assert scaffold_config["loop"]["exit_conditions"] == ["ci_pass"]
+    loop_cfg = scaffold_config["loop"]
+    assert loop_cfg["exit_condition_mode"] == "all"
+    assert loop_cfg["exit_conditions"] == [
+        "feature_delivery_complete",
+        "sprint_demo_complete",
+    ]
+    assert loop_cfg["exhaustive"] is False
     assert scaffold_config["history"]["max_log_excerpt_length"] == 4000
     assert scaffold_config["sprint"]["length_days"] == 10
     assert scaffold_config["push_policy"] == "per_feature_complete"
     planning = scaffold_config.get("planning", {})
     assert planning.get("enabled") is True
     assert planning.get("sprint_zero_only") is False
+    assert planning.get("first_day_only") is True
     charters = planning.get("charters", {})
     assert charters.get("enabled", True) is True
 
@@ -73,6 +80,14 @@ def test_cli_init_without_config(monkeypatch, tmp_path):
         {},
     )
     assert plan_step.get("cadence") == "daily"
+
+    agents = scaffold_config.get("agents", {}).get("roles", [])
+    assert "Account Manager" in agents
+
+    accountability = scaffold_config.get("accountability", {})
+    assert accountability.get("enabled") is True
+    assert accountability.get("stall_iterations") == 3
+    assert accountability.get("soft_stop") is True
 
 
 def test_cli_init_uses_default_factory_once(monkeypatch, tmp_path):

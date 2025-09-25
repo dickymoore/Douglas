@@ -51,10 +51,13 @@ make venv
 # Optional: you may need to reinstall Douglas from the new .venv (update the path if your clone lives elsewhere):
 pip install -e /path/to/Douglas
 
-# Sprint Zero planning runs automatically when `planning.enabled: true` and repeats each loop so the backlog stays fresh. Flip `sprint_zero_only` to `true` if you only want it on the first iteration.
+# Sprint Zero planning runs automatically when `planning.enabled: true`; the plan step executes every loop by default so the backlog is seeded on day one. Flip `sprint_zero_only` to `true` if you only want it on the first iteration.
 # Each iteration records a standup snapshot under `ai-inbox/sprints/` before coding begins. Review these alongside retro/demo outputs to track progress.
 # Sprint Zero also seeds charter documents (`ai-inbox/charters/AGENTS.md`, `AGENT_CHARTER.md`, etc.) so every agent has guidance before writing code.
+# By default the loop repeats until at least one `feat:` commit has been released and the sprint demo has completed; adjust `loop.exit_conditions` if you prefer a different cadence.
+# Flip `loop.exhaustive: true` in `douglas.yaml` to keep iterating until all tracked work (features/bugs/epics) is finished, the demo has run, and quality gates have passed.
 # Use `--log-level info` or `--log-level debug` (or set `DOUGLAS_LOG_LEVEL`) to surface the structured planning and Codex CLI logs introduced in this release.
+# Douglas mirrors those messages to `ai-inbox/logs/douglas.log`; override the location by exporting `DOUGLAS_LOG_FILE` if you want the log elsewhere.
 
 # Run the generated unit tests
 make test
@@ -189,15 +192,18 @@ Douglas is entirely driven by a `douglas.yaml` file located at your project root
 
 - `project`: metadata used in prompts (name, description, language, license).
 - `ai`: declares the default provider, the available provider configurations (Codex/OpenAI/Claude Code/Gemini/Copilot), optional per-role `assignments`, and the path to a system prompt file used when constructing LLM prompts. [`douglas/core.py`](douglas/core.py)
+- `planning`: toggles Sprint Zero backlog seeding, with `first_day_only: true` restricting automated planning to the opening day of each sprint so later iterations stay focused on delivery. [`douglas/pipelines/plan.py`](douglas/pipelines/plan.py)
 - `cadence`: role/activity cadence preferences consulted by the cadence manager.[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
-- `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations.[`douglas/core.py`](douglas/core.py)
+- `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations. The default configuration uses `exit_condition_mode: all` with `feature_delivery_complete` + `sprint_demo_complete`, keeping the loop alive until a feature has shipped and the sprint demo runs; set `loop.exhaustive: true` to require `all_work_complete` instead.[`douglas/core.py`](douglas/core.py)
+  - Additional exit condition helpers include `all_features_delivered` (no outstanding feature work and a successful release) and `feature_delivery_goal` (requires `loop.feature_goal: <int>`). Combine them with `tests_pass` to keep looping until new functionality ships and the quality gates succeed.[`douglas/core.py`](douglas/core.py)
 - `push_policy`: governs when push/PR steps fire (`per_feature`, `per_feature_complete`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
 - `sprint`: high-level sprint length used to calculate per-sprint cadences.[`douglas/core.py`](douglas/core.py)
 - `demo` & `retro`: configure sprint demo/retro pipelines (output formats, which sections to generate, backlog destinations). [`douglas/pipelines/demo.py`](douglas/pipelines/demo.py) [`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
 - `security`: optionally list tool aliases (e.g., `bandit`, `semgrep`) or explicit commands under the `loop` step configuration to tailor which scanners run and which paths they inspect.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 - `history`: limits for preserved CI log excerpts and other retention knobs.[`douglas/core.py`](douglas/core.py)
 - `paths`: customize locations for source, tests, AI inboxes, sprint folders, run-state files, and question portals.[`douglas/core.py`](douglas/core.py)
-- `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features. [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
+- `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features. Agents now include an Account Manager who monitors consecutive no-progress iterations and raises soft stops when accountability thresholds are breached. [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
+- `accountability`: configures the Account Manager monitor (`enabled`, `stall_iterations`, `soft_stop`) so teams can pause the loop when automation spins without shipping value. [`douglas/core.py`](douglas/core.py)
 
 ### Douglas orchestrator
 

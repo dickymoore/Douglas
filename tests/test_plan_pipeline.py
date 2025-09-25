@@ -43,6 +43,14 @@ def _build_context(tmp_path: Path, llm) -> planpipe.PlanContext:
         sprint_day=1,
         planning_config=planning_config,
         llm=llm,
+        agent_roles=[
+            "Product Owner",
+            "Developer",
+            "Tester",
+            "DevOps",
+            "BA",
+            "Account Manager",
+        ],
     )
 
 
@@ -110,7 +118,10 @@ def test_run_plan_creates_backlog(tmp_path):
     assert "agents_md" in result.charter_paths
     agents_path = result.charter_paths["agents_md"]
     assert agents_path.exists()
-    assert "Product Owner" in agents_path.read_text(encoding="utf-8")
+    agent_text = agents_path.read_text(encoding="utf-8")
+    assert "Product Owner" in agent_text
+    assert "Business Analyst" in agent_text
+    assert "Account Manager" in agent_text
 
 
 def test_run_plan_merges_with_existing_backlog(tmp_path):
@@ -172,3 +183,50 @@ def test_run_plan_skips_without_llm(tmp_path):
     assert result.created_backlog is False
     assert result.reason == "no_llm"
     assert result.charter_paths == {}
+
+
+def test_run_plan_handles_cli_error_without_overwrite(tmp_path):
+    existing_backlog = {"epics": [{"id": "EP-1", "name": "Keep me"}]}
+    context = _build_context(tmp_path, llm=DummyLLM(["ERROR: 401 Unauthorized"]))
+    context.backlog_path.parent.mkdir(parents=True, exist_ok=True)
+    context.backlog_path.write_text(
+        yaml.safe_dump(existing_backlog, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    result = planpipe.run_plan(context)
+
+    assert result.created_backlog is False
+    assert result.reason == "llm_error"
+    persisted = yaml.safe_load(context.backlog_path.read_text(encoding="utf-8"))
+    assert persisted == existing_backlog
+
+
+def test_run_plan_generates_fallback_when_backlog_empty(tmp_path):
+    charter_yaml = textwrap.dedent(
+        """
+        agents_md: |
+          # Agents
+          - Product Owner
+        agent_charter_md: |
+          # Charter
+          Mission statement.
+        coding_guidelines_md: |
+          # Coding Guidelines
+          - Write tests
+        working_agreements_md: |
+          # Working Agreements
+          - Daily standup
+        """
+    )
+    llm = DummyLLM(["plan: null", charter_yaml])
+    context = _build_context(tmp_path, llm)
+
+    result = planpipe.run_plan(context)
+
+    assert result.created_backlog is True
+    assert result.reason == "fallback"
+    data = yaml.safe_load(result.backlog_path.read_text(encoding="utf-8"))
+    assert data["epics"][0]["id"] == "EP-1"
+    assert data.get("raw", {}).get("plan") is None
+    assert result.epic_count() >= 1
