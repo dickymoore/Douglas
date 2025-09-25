@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Douglas Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="refresh" content="15" />
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #0b1725; color: #f2f6fc; }
+      header { padding: 1.5rem; background: #11263f; }
+      main { padding: 1.5rem; }
+      h1 { margin: 0; font-size: 1.8rem; }
+      section { margin-bottom: 2rem; }
+      table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+      th, td { padding: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); text-align: left; }
+      .card { background: #152c4d; padding: 1rem; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.2); }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+      canvas { background: #f2f6fc; border-radius: 8px; padding: 1rem; }
+      small { color: rgba(255, 255, 255, 0.6); }
+    </style>
+    <script>
+      const staticPayload = '__DASHBOARD_PAYLOAD__';
+      async function fetchData() {
+        if (staticPayload && !staticPayload.startsWith('__')) {
+          return JSON.parse(staticPayload);
+        }
+        const [summary, burndown, flow] = await Promise.all([
+          fetch('/api/summary').then((r) => r.json()),
+          fetch('/api/burndown').then((r) => r.json()),
+          fetch('/api/cumulative-flow').then((r) => r.json()),
+        ]);
+        return { counts: summary.counts, inbox: summary.inbox, burndown, cumulative_flow: flow };
+      }
+
+      function renderTable(container, counts) {
+        const headers = ['Status', 'Epics', 'Features', 'Work items'];
+        const statuses = ['not_started', 'in_progress', 'blocked', 'in_test', 'finished'];
+        let html = '<table><thead><tr>' + headers.map((h) => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+        statuses.forEach((status) => {
+          html += '<tr><td>' + status.replace('_', ' ') + '</td>' +
+            ['epics','features','work-items'].map((bucket) => counts[bucket]?.[status] ?? 0).map((value) => `<td>${value}</td>`).join('') + '</tr>';
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      }
+
+      function renderBurndown(container, points) {
+        if (!points.length) {
+          container.innerHTML = '<small>No burndown data available.</small>';
+          return;
+        }
+        let html = '<table><thead><tr><th>Date</th><th>Remaining</th><th>Completed</th></tr></thead><tbody>';
+        points.forEach((p) => {
+          html += `<tr><td>${new Date(p.date).toLocaleString()}</td><td>${p.remaining}</td><td>${p.completed}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      }
+
+      function renderFlow(container, flow) {
+        const statuses = Object.keys(flow);
+        if (!statuses.length) {
+          container.innerHTML = '<small>No cumulative flow data available.</small>';
+          return;
+        }
+        let html = '<table><thead><tr><th>Status</th><th>History</th></tr></thead><tbody>';
+        statuses.forEach((status) => {
+          const trail = flow[status].map(({date, count}) => `${new Date(date).toLocaleDateString()}: ${count}`).join('<br/>');
+          html += `<tr><td>${status}</td><td>${trail}</td></tr>`;
+        });
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      }
+
+      function renderInbox(container, inbox) {
+        container.innerHTML = `<div class="card"><h3>Inbox</h3><p>Unanswered: <strong>${inbox.unanswered ?? 0}</strong><br/>Answered: <strong>${inbox.answered ?? 0}</strong></p></div>`;
+      }
+
+      async function init() {
+        const data = await fetchData();
+        renderTable(document.getElementById('summary'), data.counts || {});
+        renderBurndown(document.getElementById('burndown'), data.burndown || []);
+        renderFlow(document.getElementById('flow'), data.cumulative_flow || {});
+        renderInbox(document.getElementById('inbox'), data.inbox || {});
+      }
+
+      document.addEventListener('DOMContentLoaded', init);
+    </script>
+  </head>
+  <body>
+    <header>
+      <h1>Douglas Live Dashboard</h1>
+      <small>Auto-refreshes every 15 seconds. Aggregates sprint progress, inbox activity, and flow metrics.</small>
+    </header>
+    <main>
+      <section class="card">
+        <h2>Backlog summary</h2>
+        <div id="summary"></div>
+      </section>
+      <div class="grid">
+        <section class="card">
+          <h2>Sprint burn-up/down</h2>
+          <div id="burndown"></div>
+        </section>
+        <section class="card" id="inbox"></section>
+      </div>
+      <section class="card">
+        <h2>Cumulative flow</h2>
+        <div id="flow"></div>
+      </section>
+    </main>
+  </body>
+</html>

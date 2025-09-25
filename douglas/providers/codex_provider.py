@@ -7,11 +7,13 @@ import os
 import shlex
 import shutil
 import subprocess
-import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Iterable, Optional
 
+from douglas.agents.locks import FileLockManager
+from douglas.agents.workspace import AgentWorkspace
 from douglas.logging_utils import get_logger
 from douglas.providers.openai_provider import OpenAIProvider
 
@@ -61,6 +63,10 @@ class CodexProvider(OpenAIProvider):
         self._cli_token = cli_token
         self._cli_timeout_seconds = int(os.getenv("CODEX_CLI_TIMEOUT", "120"))
         self._cli_heartbeat_seconds = int(os.getenv("CODEX_CLI_HEARTBEAT", "10"))
+        self._workspace_root = Path(os.getenv("DOUGLAS_WORKSPACE_ROOT", ".douglas/workspaces"))
+        self._workspace_root.mkdir(parents=True, exist_ok=True)
+        self._lock_manager = FileLockManager(self._workspace_root.parent / "locks")
+        self._workspaces: dict[str, AgentWorkspace] = {}
 
     def _resolve_cli_path(self, cli_path: Optional[str]) -> Optional[str]:
         explicit = cli_path or os.getenv(self._CLI_EXECUTABLE_ENV)
@@ -75,12 +81,22 @@ class CodexProvider(OpenAIProvider):
 
         return super().generate_code(prompt)
 
+    def _workspace_for(self, agent_id: str) -> AgentWorkspace:
+        if agent_id not in self._workspaces:
+            self._workspaces[agent_id] = AgentWorkspace(
+                agent_id,
+                self._workspace_root / agent_id,
+                self._lock_manager,
+            )
+        return self._workspaces[agent_id]
+
     def _invoke_codex_cli(self, prompt: str) -> Optional[str]:
         if not self._cli_path:
             return None
 
-        with tempfile.NamedTemporaryFile("w", delete=False, suffix=".txt") as handle:
-            last_message_path = Path(handle.name)
+        agent_id = os.getenv("DOUGLAS_AGENT_ID", uuid.uuid4().hex)
+        workspace = self._workspace_for(agent_id)
+        last_message_path = workspace.artifacts_dir / f"last_message_{uuid.uuid4().hex}.txt"
 
         auth_file = None
         for candidate in self._candidate_auth_paths():
@@ -89,15 +105,10 @@ class CodexProvider(OpenAIProvider):
                 break
 
         env = os.environ.copy()
-        temp_home: Optional[tempfile.TemporaryDirectory] = None
         if auth_file is not None:
             env.setdefault("CODEX_AUTH_FILE", str(auth_file))
         if "CODEX_HOME" not in env:
-            if auth_file is not None and auth_file.parent.exists():
-                env["CODEX_HOME"] = str(auth_file.parent)
-            else:
-                temp_home = tempfile.TemporaryDirectory(prefix="codex-cli-")
-                env["CODEX_HOME"] = temp_home.name
+            env["CODEX_HOME"] = str(workspace.root)
 
         command = [
             self._cli_path,
@@ -128,8 +139,6 @@ class CodexProvider(OpenAIProvider):
             )
         except FileNotFoundError:
             last_message_path.unlink(missing_ok=True)
-            if temp_home is not None:
-                temp_home.cleanup()
             return None
 
         stdout_chunks: list[str] = []
@@ -166,8 +175,6 @@ class CodexProvider(OpenAIProvider):
                             elapsed,
                         )
                         last_message_path.unlink(missing_ok=True)
-                        if temp_home is not None:
-                            temp_home.cleanup()
                         return None
                     continue
         except Exception as exc:  # pragma: no cover - defensive
@@ -181,8 +188,6 @@ class CodexProvider(OpenAIProvider):
                 exc,
             )
             last_message_path.unlink(missing_ok=True)
-            if temp_home is not None:
-                temp_home.cleanup()
             return None
 
         elapsed = time.monotonic() - start_time
@@ -198,9 +203,6 @@ class CodexProvider(OpenAIProvider):
             logger.debug("Codex CLI stdout:\n%s", stdout_text)
         if stderr_text:
             logger.debug("Codex CLI stderr:\n%s", stderr_text)
-
-        if temp_home is not None:
-            temp_home.cleanup()
 
         if process.returncode != 0:
             logger.warning(
@@ -218,12 +220,15 @@ class CodexProvider(OpenAIProvider):
             last_message_path.unlink(missing_ok=True)
 
         if message:
+            workspace.record_change("last_message.txt", message)
             return message
 
         if stdout_text:
+            workspace.record_change("stdout.txt", stdout_text)
             return stdout_text
 
         if stderr_text:
+            workspace.record_change("stderr.txt", stderr_text)
             return stderr_text
 
         return None

@@ -13,6 +13,8 @@ dependencies = [
     "typer>=0.9",
     "pyyaml>=6.0",
     "rich>=10.11",
+    "fastapi>=0.110",
+    "uvicorn>=0.22",
 ]
 
 [project.scripts]

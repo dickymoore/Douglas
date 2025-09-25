@@ -1,0 +1,18 @@
+name: sample-demo
+sandbox:
+  command: ["python", "-m", "http.server", "8001"]
+  env:
+    PYTHONUNBUFFERED: "1"
+steps:
+  - name: Show project tree
+    type: cli
+    command: ["ls", "-1"]
+  - name: Fetch root endpoint
+    type: api
+    request:
+      method: GET
+      url: "http://127.0.0.1:8001"
+      timeout: 2
+  - name: Placeholder UI walkthrough
+    type: gui
+    script: tests/gui_walkthrough.py
