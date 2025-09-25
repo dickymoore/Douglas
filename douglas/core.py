@@ -1050,6 +1050,7 @@ class Douglas:
 
         results: List[bool] = []
         for condition in exit_conditions:
+MERGE_CONFLICT< feature/codex
             satisfied = self._evaluate_exit_condition(condition, executed_steps)
             results.append(satisfied)
 
@@ -1151,6 +1152,32 @@ class Douglas:
         progress_steps = ("generate", "commit", "push", "pr")
         for name in progress_steps:
             if self._loop_outcomes.get(name) is True:
+MERGE_CONFLICT=
+            if (
+                condition == "sprint_demo_complete"
+                and self.sprint_manager.has_step_run("demo")
+            ):
+                return True
+            if condition == "tests_pass" and self._loop_outcomes.get("test") is True:
+                return True
+            if condition == "lint_pass" and self._loop_outcomes.get("lint") is True:
+                return True
+            if (
+                condition == "typecheck_pass"
+                and self._loop_outcomes.get("typecheck") is True
+            ):
+                return True
+            if (
+                condition == "local_checks_pass"
+                and self._loop_outcomes.get("local_checks") is True
+            ):
+                return True
+            if condition == "push_complete" and self._loop_outcomes.get("push") is True:
+                return True
+            if condition == "pr_created" and self._loop_outcomes.get("pr") is True:
+                return True
+            if condition == "ci_pass" and self._ci_status == "success":
+MERGE_CONFLICT> main
                 return True
         if len(self.sprint_manager.completed_features) > baseline_completed_features:
             return True
