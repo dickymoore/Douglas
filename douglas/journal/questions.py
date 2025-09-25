@@ -179,8 +179,15 @@ def archive_question(question: Question) -> Path:
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         question.path.replace(destination)
-    except OSError:
-        shutil.move(question.path, destination)
+    except OSError as e_replace:
+        try:
+            shutil.move(question.path, destination)
+        except Exception as e_move:
+            raise RuntimeError(
+                f"Failed to move question file from {question.path} to {destination} "
+                f"using both Path.replace and shutil.move. "
+                f"Original error: {e_replace}; shutil.move error: {e_move}"
+            ) from e_move
 
     sprint_prefix = _resolve_sprint_prefix(question.config)
     _log_question_to_summary(
