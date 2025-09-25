@@ -76,7 +76,10 @@ class FileLockManager:
                 while True:
                     try:
                         fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                        os.close(fd)
+                        try:
+                            os.close(fd)
+                        finally:
+                            pass
                         acquired.append(lock_path)
                         break
                     except FileExistsError:
