@@ -18,6 +18,11 @@ from douglas.providers.gemini_provider import GeminiProvider
 from douglas.providers.openai_provider import OpenAIProvider
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
+dashboard_app = typer.Typer(help="Serve or render the Douglas dashboard")
+demo_app = typer.Typer(help="Run product demo scripts")
+
+app.add_typer(dashboard_app, name="dashboard")
+app.add_typer(demo_app, name="demo")
 
 
 def _version_callback(value: bool) -> None:
@@ -271,6 +276,63 @@ def init(
         ai_provider=provider_choice,
         ai_model=model_choice,
     )
+
+
+@dashboard_app.command("serve")
+def dashboard_serve(
+    state_dir: Path = typer.Argument(Path(".")),
+    host: str = typer.Option("127.0.0.1", help="Host interface to bind the dashboard server"),
+    port: int = typer.Option(8050, help="Port to bind the dashboard server"),
+    reload: bool = typer.Option(False, help="Enable auto-reload (development only)"),
+) -> None:
+    """Start the live FastAPI dashboard."""
+
+    from douglas.dashboard import server as dashboard_server
+    from douglas.dashboard.server import create_app
+
+    try:
+        import uvicorn
+    except ImportError as exc:  # pragma: no cover - runtime guard
+        raise typer.BadParameter(
+            "uvicorn is required to serve the dashboard. Install with `pip install uvicorn`."
+        ) from exc
+
+    if getattr(dashboard_server, "FastAPI", None) is None:
+        raise typer.BadParameter(
+            "FastAPI is not available in this environment. Install with `pip install fastapi`."
+        )
+
+    app_instance = create_app(state_dir)
+    typer.echo(f"Serving dashboard from {state_dir} on http://{host}:{port}")
+    uvicorn.run(app_instance, host=host, port=port, reload=reload)
+
+
+@dashboard_app.command("render")
+def dashboard_render(
+    state_dir: Path = typer.Argument(Path(".")),
+    output_dir: Path = typer.Argument(Path(".douglas/dashboard")),
+) -> None:
+    """Render static dashboard HTML to disk."""
+
+    from douglas.dashboard.server import render_static_dashboard
+
+    target = render_static_dashboard(state_dir, output_dir)
+    typer.echo(f"Dashboard rendered to {target}")
+
+
+@demo_app.command("run")
+def demo_run(
+    script: Path = typer.Argument(..., exists=True, readable=True),
+    output: Optional[Path] = typer.Option(None, help="Output directory for the demo report"),
+) -> None:
+    """Execute a Douglas demo script and capture a report."""
+
+    from douglas.demo.runner import DemoRunner
+
+    runner = DemoRunner()
+    report = runner.run(script, output_dir=output)
+    typer.echo(f"Demo completed in {report.finished_at - report.started_at:.2f}s")
+    typer.echo(f"Report directory: {report.artifacts_dir}")
 
 
 def main() -> None:

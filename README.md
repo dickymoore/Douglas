@@ -4,6 +4,15 @@ Douglas is a developer-lifecycle companion that automates an AI-assisted build, 
 
 > **Status:** Douglas is not yet published on PyPI. Install from source as shown below. Codex is configured as the default provider and Douglas also recognises OpenAI chat models, Claude Code, Google Gemini, and a stubbed GitHub Copilot integration—each degrading gracefully to a local stub whenever credentials or SDKs are unavailable.
 
+## Operational upgrades
+
+Douglas now ships with tooling that turns it into an "agile team in a box":
+
+- **Parallel Codex agents** – Launch multiple Codex CLI workers safely. Each invocation is isolated in `.douglas/workspaces/<agent-id>/` and coordinated via lock files in `.douglas/locks/`. The merger agent copies generated changes back into the main repository without clobbering concurrent work.
+- **Structured logging** – A shared logging module emits colourised console output and JSON lines in `logs/douglas.log` (rotated at 10 MB × 5 files). Configure the verbosity with `DOUGLAS_LOG_LEVEL` or `--log-level`, override the log file with `DOUGLAS_LOG_FILE`, and import `douglas.logging` helpers to instrument custom agents.
+- **Live dashboard** – A FastAPI microservice (and static HTML renderer) reads `.douglas/state/`, `features/`, `inbox/`, and related folders to surface backlog totals, burn-down/burn-up metrics, and cumulative-flow trends. Start it with `douglas dashboard serve` or snapshot HTML with `douglas dashboard render`.
+- **Demo-script DSL** – Capture product tours in YAML or JSON under `.douglas/demos/`. Run them via `douglas demo run path/to/script.yaml` to execute CLI/API steps and generate an HTML+JSON report.
+
 ## Two Ways to Use Douglas
 
 ### 1. Bootstrapping your own application
@@ -269,6 +278,83 @@ The provider abstraction keeps Douglas model-agnostic:
 - `LLMProvider` is a simple interface with a `generate_code(prompt)` method and a `create_provider()` factory.[`douglas/providers/llm_provider.py`](douglas/providers/llm_provider.py)
   - `LLMProviderRegistry` parses `ai.default_provider`, `ai.providers`, and optional per-role `assignments` to deliver the right provider for each step.[`douglas/providers/provider_registry.py`](douglas/providers/provider_registry.py)
   - `CodexProvider` builds on the OpenAI transport with sensible defaults for the Codex models while degrading to a stub when credentials are missing.[`douglas/providers/codex_provider.py`](douglas/providers/codex_provider.py)
+
+### Parallel agent execution & merging
+
+Douglas' Codex integration now supports concurrent CLI sessions without trampling local state:
+
+1. Every run gets a unique workspace beneath `.douglas/workspaces/<agent-id>/`. Use `ParallelAgentExecutor` to submit work or call the Codex provider directly—the provider automatically provisions a workspace when `generate_code` shells out to the CLI.
+2. File-level coordination happens via `.douglas/locks/`. `FileLockManager.acquire()` exposes a context manager you can wrap around custom write operations when extending Douglas.
+3. After agents finish, the `MergerAgent` overlays `changes/` back into the repository while acquiring lock files for each destination path. Example:
+
+   ```python
+   from douglas.agents import MergerAgent, ParallelAgentExecutor
+
+   executor = ParallelAgentExecutor()
+   future = executor.submit(["codex", "exec", "-", "--some-flag"], metadata={"story": "ABC-123"})
+   result = future.result()
+   merger = MergerAgent(executor)
+   updated_files = merger.merge(result.agent_id)
+   print("Merged:", [str(path) for path in updated_files])
+   ```
+
+Workspaces accumulate CLI transcripts and last responses in their `changes/` folder so they can be committed or inspected later.
+
+### Structured logging utilities
+
+All Douglas components route through `douglas.logging` which configures a colourised console stream plus a JSON rotating file handler (`logs/douglas.log`, 10 MB × 5). Custom code can opt in via:
+
+```python
+from douglas.logging import configure_logging, get_logger, log_action
+
+configure_logging(level="debug")
+logger = get_logger("custom.component", metadata={"role": "Developer"})
+
+@log_action("sync-backlog", logger_factory=lambda: logger)
+def sync_backlog():
+    logger.info("Fetching backlog", extra={"metadata": {"items": 42}})
+```
+
+Set `DOUGLAS_LOG_LEVEL`, `DOUGLAS_LOG_FILE`, or `DOUGLAS_LOG_DIR` to tailor behaviour; pass `--log-level` on the CLI for ad-hoc overrides.
+
+### Dashboard & static snapshots
+
+Monitor progress in real time with the FastAPI dashboard:
+
+```bash
+# Live API + auto-refreshing HTML
+douglas dashboard serve --state-dir .
+
+# Render a static HTML bundle (saved under .douglas/dashboard/index.html by default)
+douglas dashboard render --state-dir . --output-dir .douglas/dashboard
+```
+
+The service consumes `.douglas/state/`, `features/`, `epics/`, and `inbox/` folders—no database required. The bundled HTML fallback embeds a JSON payload so it can be served from any static host.
+
+### Demo-script DSL & runner
+
+Define end-to-end demos under `.douglas/demos/` using YAML or JSON. Supported step types today:
+
+- `cli` – run shell commands and capture stdout/stderr.
+- `api` – issue HTTP requests (GET/POST/etc.) with JSON payloads.
+- `gui` – placeholder for future Playwright automation; currently records the requested script path.
+
+Example (`.douglas/demos/example_demo.yaml` ships with the repo):
+
+```yaml
+name: sample-demo
+steps:
+  - name: Show project tree
+    type: cli
+    command: ["ls", "-1"]
+  - name: Fetch root endpoint
+    type: api
+    request:
+      method: GET
+      url: "http://127.0.0.1:8001"
+```
+
+Run it via `douglas demo run .douglas/demos/example_demo.yaml`. Reports land in `.douglas/demos/reports/<demo-name>/` (both JSON and HTML).
   - `OpenAIProvider` initialises the OpenAI SDK, honours `ai.model` overrides (or `OPENAI_MODEL`) plus optional `ai.base_url`/`ai.api_key` settings, and returns real model output when credentials and the SDK are available—falling back to a local stub otherwise.[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
   - `ClaudeCodeProvider`, `GeminiProvider`, and `CopilotProvider` handle Anthropic, Google, and GitHub Copilot integrations respectively, issuing warnings and deterministic placeholder output whenever SDKs or API keys are absent.[`douglas/providers/claude_code_provider.py`](douglas/providers/claude_code_provider.py) [`douglas/providers/gemini_provider.py`](douglas/providers/gemini_provider.py) [`douglas/providers/copilot_provider.py`](douglas/providers/copilot_provider.py)
 
