@@ -282,8 +282,11 @@ class CodexProvider(OpenAIProvider):
         output = (exc.stderr or exc.stdout or "").strip()
         if not output:
             return f"exit code {exc.returncode}"
-        first_line = output.splitlines()[0].strip()
-        return first_line or f"exit code {exc.returncode}"
+        lines = output.splitlines()
+        if lines:
+            first_line = lines[0].strip()
+            return first_line or f"exit code {exc.returncode}"
+        return f"exit code {exc.returncode}"
 
     def _load_cli_cached_token(self) -> Optional[str]:
         for path in self._candidate_auth_paths():
