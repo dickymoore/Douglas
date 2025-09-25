@@ -1,11 +1,9 @@
 import os
-import sys
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from typer.testing import CliRunner
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas.cli import app
 from douglas.core import Douglas

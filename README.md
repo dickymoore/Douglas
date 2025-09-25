@@ -4,6 +4,15 @@ Douglas is a developer-lifecycle companion that automates an AI-assisted build, 
 
 > **Status:** Douglas is not yet published on PyPI. Install from source as shown below. Codex is configured as the default provider and Douglas also recognises OpenAI chat models, Claude Code, Google Gemini, and a stubbed GitHub Copilot integration—each degrading gracefully to a local stub whenever credentials or SDKs are unavailable.
 
+## Operational upgrades
+
+Douglas now ships with tooling that turns it into an "agile team in a box":
+
+- **Parallel Codex agents** – Launch multiple Codex CLI workers safely. Each invocation is isolated in `.douglas/workspaces/<agent-id>/` and coordinated via lock files in `.douglas/locks/`. The merger agent copies generated changes back into the main repository without clobbering concurrent work.
+- **Structured logging** – A shared logging module emits colourised console output and JSON lines in `logs/douglas.log` (rotated at 10 MB × 5 files). Configure the verbosity with `DOUGLAS_LOG_LEVEL` or `--log-level`, override the log file with `DOUGLAS_LOG_FILE`, and import `douglas.logging` helpers to instrument custom agents.
+- **Live dashboard** – A FastAPI microservice (and static HTML renderer) reads `.douglas/state/`, `features/`, `inbox/`, and related folders to surface backlog totals, burn-down/burn-up metrics, and cumulative-flow trends. Start it with `douglas dashboard serve` or snapshot HTML with `douglas dashboard render`.
+- **Demo-script DSL** – Capture product tours in YAML or JSON under `.douglas/demos/`. Run them via `douglas demo run path/to/script.yaml` to execute CLI/API steps and generate an HTML+JSON report.
+
 ## Two Ways to Use Douglas
 
 ### 1. Bootstrapping your own application
@@ -12,12 +21,31 @@ Douglas ships with a turnkey `douglas init` command that creates a ready-to-run 
 
 **Quickstart (Python template)**
 
+Run these commands from the directory where you want the new project folder (for example, your workspace root). Douglas will create the scaffolded app as a sibling directory. Make sure the `douglas` CLI is installed first—if the check below fails, follow the [Installation & setup](#installation--setup) steps before proceeding.
+
 ```bash
+# Confirm the Douglas CLI is available; fallback to installation instructions if not
+command -v douglas >/dev/null || { echo "Douglas CLI not found. See Installation & setup."; }
+
 # Create a new project in ./my-app with the default per-feature push policy
 douglas init my-app --template python --non-interactive
 
 cd my-app
+
+# Ensure this directory is a Git repo (skip if you passed --git above)
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || git init
+
+# Optional: record the scaffold as the first commit so Douglas can reference HEAD
+git rev-parse HEAD >/dev/null 2>&1 || { git add . && git commit -m "Initial scaffold"; }
+
+# Keep the Douglas CLI available in the active environment
+douglas --version >/dev/null 2>&1 || pip install -e /path/to/Douglas  # replace path with your local clone; use `pip install douglas` once published
+
+# Ensure Codex CLI is up to date (0.40.0 or newer)
+codex --version  # should print codex-cli 0.40.0 (or newer)
+
 codex login  # authenticate via the Codex CLI in your browser (default provider credentials)
+codex exec "echo Codex CLI ready"  # success output confirms the CLI is authenticated and usable
 
 # Optional: copy the example env file if you prefer direct API tokens
 cp .env.example .env
@@ -25,12 +53,29 @@ cp .env.example .env
 # Prepare a virtual environment and install the scaffolded dev dependencies
 make venv
 
+# Optional: confirm lint/type tooling and provider SDKs are available (installed via `make venv`)
+. .venv/bin/activate && ruff --version && black --version && isort --version && mypy --version && python -c "import openai; print('openai', openai.__version__)"
+# If any are missing, rerun `pip install -r requirements-dev.txt` or install manually with `pip install ruff black isort mypy openai` while the venv is active.
+
+# Optional: you may need to reinstall Douglas from the new .venv (update the path if your clone lives elsewhere):
+pip install -e /path/to/Douglas
+
+# Sprint Zero planning runs automatically when `planning.enabled: true`; the plan step executes every loop by default so the backlog is seeded on day one. Flip `sprint_zero_only` to `true` if you only want it on the first iteration.
+# Each iteration records a standup snapshot under `ai-inbox/sprints/` before coding begins. Review these alongside retro/demo outputs to track progress.
+# Sprint Zero also seeds charter documents (`ai-inbox/charters/AGENTS.md`, `AGENT_CHARTER.md`, etc.) so every agent has guidance before writing code.
+# By default the loop repeats until at least one `feat:` commit has been released and the sprint demo has completed; adjust `loop.exit_conditions` if you prefer a different cadence.
+# Flip `loop.exhaustive: true` in `douglas.yaml` to keep iterating until all tracked work (features/bugs/epics) is finished, the demo has run, and quality gates have passed.
+# Use `--log-level info` or `--log-level debug` (or set `DOUGLAS_LOG_LEVEL`) to surface the structured planning and Codex CLI logs introduced in this release.
+# Douglas mirrors those messages to `ai-inbox/logs/douglas.log`; override the location by exporting `DOUGLAS_LOG_FILE` if you want the log elsewhere.
+
 # Run the generated unit tests
 make test
 
-# Start iterating with Douglas
+# Start iterating with Douglas (SEE NOTE BELOW)
 douglas run
 ```
+
+Before you launch the first loop, edit the scaffolded `system_prompt.md` (and optionally `ai-inbox/backlog/pre-features.yaml`) to describe the feature, sprint goal, or backlog items you want Douglas to tackle. The orchestrator reads those files during `douglas run`, so giving it direction up front keeps the initial iteration focused on the work you care about.
 
 Additional options let you customise the scaffold:
 
@@ -156,15 +201,18 @@ Douglas is entirely driven by a `douglas.yaml` file located at your project root
 
 - `project`: metadata used in prompts (name, description, language, license).
 - `ai`: declares the default provider, the available provider configurations (Codex/OpenAI/Claude Code/Gemini/Copilot), optional per-role `assignments`, and the path to a system prompt file used when constructing LLM prompts. [`douglas/core.py`](douglas/core.py)
+- `planning`: toggles Sprint Zero backlog seeding, with `first_day_only: true` restricting automated planning to the opening day of each sprint so later iterations stay focused on delivery. [`douglas/pipelines/plan.py`](douglas/pipelines/plan.py)
 - `cadence`: role/activity cadence preferences consulted by the cadence manager.[`douglas/cadence_manager.py`](douglas/cadence_manager.py)
-- `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations.[`douglas/core.py`](douglas/core.py)
+- `loop`: ordered list of step objects (with optional per-step cadence overrides), exit conditions, and maximum iterations. The default configuration uses `exit_condition_mode: all` with `feature_delivery_complete` + `sprint_demo_complete`, keeping the loop alive until a feature has shipped and the sprint demo runs; set `loop.exhaustive: true` to require `all_work_complete` instead.[`douglas/core.py`](douglas/core.py)
+  - Additional exit condition helpers include `all_features_delivered` (no outstanding feature work and a successful release) and `feature_delivery_goal` (requires `loop.feature_goal: <int>`). Combine them with `tests_pass` to keep looping until new functionality ships and the quality gates succeed.[`douglas/core.py`](douglas/core.py)
 - `push_policy`: governs when push/PR steps fire (`per_feature`, `per_feature_complete`, `per_bug`, `per_epic`, `per_sprint`).[`douglas/core.py`](douglas/core.py)
 - `sprint`: high-level sprint length used to calculate per-sprint cadences.[`douglas/core.py`](douglas/core.py)
 - `demo` & `retro`: configure sprint demo/retro pipelines (output formats, which sections to generate, backlog destinations). [`douglas/pipelines/demo.py`](douglas/pipelines/demo.py) [`douglas/pipelines/retro.py`](douglas/pipelines/retro.py)
 - `security`: optionally list tool aliases (e.g., `bandit`, `semgrep`) or explicit commands under the `loop` step configuration to tailor which scanners run and which paths they inspect.[`douglas/pipelines/security.py`](douglas/pipelines/security.py)
 - `history`: limits for preserved CI log excerpts and other retention knobs.[`douglas/core.py`](douglas/core.py)
 - `paths`: customize locations for source, tests, AI inboxes, sprint folders, run-state files, and question portals.[`douglas/core.py`](douglas/core.py)
-- `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features. [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
+- `agents`, `run_state`, `qna`: hints for UX portals, approved run-state values, and question filename patterns used by the collaboration features. Agents now include an Account Manager who monitors consecutive no-progress iterations and raises soft stops when accountability thresholds are breached. [`templates/douglas.yaml.tpl`](templates/douglas.yaml.tpl)
+- `accountability`: configures the Account Manager monitor (`enabled`, `stall_iterations`, `soft_stop`) so teams can pause the loop when automation spins without shipping value. [`douglas/core.py`](douglas/core.py)
 
 ### Douglas orchestrator
 
@@ -230,6 +278,83 @@ The provider abstraction keeps Douglas model-agnostic:
 - `LLMProvider` is a simple interface with a `generate_code(prompt)` method and a `create_provider()` factory.[`douglas/providers/llm_provider.py`](douglas/providers/llm_provider.py)
   - `LLMProviderRegistry` parses `ai.default_provider`, `ai.providers`, and optional per-role `assignments` to deliver the right provider for each step.[`douglas/providers/provider_registry.py`](douglas/providers/provider_registry.py)
   - `CodexProvider` builds on the OpenAI transport with sensible defaults for the Codex models while degrading to a stub when credentials are missing.[`douglas/providers/codex_provider.py`](douglas/providers/codex_provider.py)
+
+### Parallel agent execution & merging
+
+Douglas' Codex integration now supports concurrent CLI sessions without trampling local state:
+
+1. Every run gets a unique workspace beneath `.douglas/workspaces/<agent-id>/`. Use `ParallelAgentExecutor` to submit work or call the Codex provider directly—the provider automatically provisions a workspace when `generate_code` shells out to the CLI.
+2. File-level coordination happens via `.douglas/locks/`. `FileLockManager.acquire()` exposes a context manager you can wrap around custom write operations when extending Douglas.
+3. After agents finish, the `MergerAgent` overlays `changes/` back into the repository while acquiring lock files for each destination path. Example:
+
+   ```python
+   from douglas.agents import MergerAgent, ParallelAgentExecutor
+
+   executor = ParallelAgentExecutor()
+   future = executor.submit(["codex", "exec", "-", "--some-flag"], metadata={"story": "ABC-123"})
+   result = future.result()
+   merger = MergerAgent(executor)
+   updated_files = merger.merge(result.agent_id)
+   print("Merged:", [str(path) for path in updated_files])
+   ```
+
+Workspaces accumulate CLI transcripts and last responses in their `changes/` folder so they can be committed or inspected later.
+
+### Structured logging utilities
+
+All Douglas components route through `douglas.logging` which configures a colourised console stream plus a JSON rotating file handler (`logs/douglas.log`, 10 MB × 5). Custom code can opt in via:
+
+```python
+from douglas.logging import configure_logging, get_logger, log_action
+
+configure_logging(level="debug")
+logger = get_logger("custom.component", metadata={"role": "Developer"})
+
+@log_action("sync-backlog", logger_factory=lambda: logger)
+def sync_backlog():
+    logger.info("Fetching backlog", extra={"metadata": {"items": 42}})
+```
+
+Set `DOUGLAS_LOG_LEVEL`, `DOUGLAS_LOG_FILE`, or `DOUGLAS_LOG_DIR` to tailor behaviour; pass `--log-level` on the CLI for ad-hoc overrides.
+
+### Dashboard & static snapshots
+
+Monitor progress in real time with the FastAPI dashboard:
+
+```bash
+# Live API + auto-refreshing HTML
+douglas dashboard serve --state-dir .
+
+# Render a static HTML bundle (saved under .douglas/dashboard/index.html by default)
+douglas dashboard render --state-dir . --output-dir .douglas/dashboard
+```
+
+The service consumes `.douglas/state/`, `features/`, `epics/`, and `inbox/` folders—no database required. The bundled HTML fallback embeds a JSON payload so it can be served from any static host.
+
+### Demo-script DSL & runner
+
+Define end-to-end demos under `.douglas/demos/` using YAML or JSON. Supported step types today:
+
+- `cli` – run shell commands and capture stdout/stderr.
+- `api` – issue HTTP requests (GET/POST/etc.) with JSON payloads.
+- `gui` – placeholder for future Playwright automation; currently records the requested script path.
+
+Example (`.douglas/demos/example_demo.yaml` ships with the repo):
+
+```yaml
+name: sample-demo
+steps:
+  - name: Show project tree
+    type: cli
+    command: ["ls", "-1"]
+  - name: Fetch root endpoint
+    type: api
+    request:
+      method: GET
+      url: "http://127.0.0.1:8001"
+```
+
+Run it via `douglas demo run .douglas/demos/example_demo.yaml`. Reports land in `.douglas/demos/reports/<demo-name>/` (both JSON and HTML).
   - `OpenAIProvider` initialises the OpenAI SDK, honours `ai.model` overrides (or `OPENAI_MODEL`) plus optional `ai.base_url`/`ai.api_key` settings, and returns real model output when credentials and the SDK are available—falling back to a local stub otherwise.[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
   - `ClaudeCodeProvider`, `GeminiProvider`, and `CopilotProvider` handle Anthropic, Google, and GitHub Copilot integrations respectively, issuing warnings and deterministic placeholder output whenever SDKs or API keys are absent.[`douglas/providers/claude_code_provider.py`](douglas/providers/claude_code_provider.py) [`douglas/providers/gemini_provider.py`](douglas/providers/gemini_provider.py) [`douglas/providers/copilot_provider.py`](douglas/providers/copilot_provider.py)
 

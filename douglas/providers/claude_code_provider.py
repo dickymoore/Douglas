@@ -7,7 +7,11 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any, List, Optional
 
+from douglas.logging_utils import get_logger
 from douglas.providers.llm_provider import LLMProvider
+
+
+logger = get_logger(__name__)
 
 
 class ClaudeCodeProvider(LLMProvider):
@@ -35,32 +39,30 @@ class ClaudeCodeProvider(LLMProvider):
         self._client: Optional[Any] = None
 
         if not self._api_key:
-            print(
-                "Warning: ANTHROPIC_API_KEY not set. Falling back to Claude Code stub output."
+            logger.warning(
+                "ANTHROPIC_API_KEY not set. Falling back to Claude Code stub output."
             )
             return
 
         try:
             anthropic = importlib.import_module("anthropic")
         except ImportError:
-            print(
-                "Warning: The 'anthropic' package is not installed. Install it with "
-                "'pip install anthropic' to enable Claude Code integration."
+            logger.warning(
+                "The 'anthropic' package is not installed. Install it with 'pip install anthropic' to enable Claude Code integration."
             )
             return
 
         client_factory = getattr(anthropic, "Anthropic", None)
         if client_factory is None:
-            print(
-                "Warning: Anthropic SDK does not expose an Anthropic client. "
-                "Falling back to Claude Code stub output."
+            logger.warning(
+                "Anthropic SDK does not expose an Anthropic client. Falling back to Claude Code stub output."
             )
             return
 
         try:
             self._client = client_factory(api_key=self._api_key)
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
-            print(f"Warning: Failed to initialise Anthropic client: {exc}")
+            logger.warning("Failed to initialise Anthropic client: %s", exc)
             self._client = None
 
     def generate_code(self, prompt: str) -> str:
@@ -74,8 +76,9 @@ class ClaudeCodeProvider(LLMProvider):
                 messages=[{"role": "user", "content": prompt}],
             )
         except Exception as exc:  # pragma: no cover - network/SDK failures
-            print(
-                f"Warning: Claude Code request failed ({exc}). Falling back to stub output."
+            logger.warning(
+                "Claude Code request failed (%s). Falling back to stub output.",
+                exc,
             )
             return self._fallback(prompt)
 
@@ -83,8 +86,8 @@ class ClaudeCodeProvider(LLMProvider):
         if text:
             return text
 
-        print(
-            "Warning: Received empty response from Claude Code. Falling back to stub output."
+        logger.warning(
+            "Received empty response from Claude Code. Falling back to stub output."
         )
         return self._fallback(prompt)
 
@@ -130,8 +133,8 @@ class ClaudeCodeProvider(LLMProvider):
         return ""
 
     def _fallback(self, prompt: str) -> str:  # pragma: no cover - log output only
-        print(
-            "[ClaudeCodeProvider] Falling back to placeholder output. Prompt preview:"
+        logger.warning(
+            "Claude Code provider fallback triggered; returning placeholder output."
         )
-        print(prompt[:200])
+        logger.debug("Claude Code fallback prompt preview:\n%s", prompt[:200])
         return "# Claude Code API unavailable; no code generated."

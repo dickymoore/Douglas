@@ -1,32 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "douglas"
 version = "0.1.0"
-description = "AI-assisted development loop orchestrator"
+description = "Scaffolded with Douglas."
+authors = [{ name = "Douglas" }]
 readme = "README.md"
-license = "MIT"
-requires-python = ">=3.9"
-authors = [{ name = "Dicky Moore" }]
-dependencies = ["typer>=0.9", "pyyaml>=6.0"]
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9",
+    "pyyaml>=6.0",
+    "rich>=10.11",
+    "fastapi>=0.110",
+    "uvicorn>=0.22",
+]
 
 [project.scripts]
-douglas = "douglas.cli:main"
+douglas = "douglas.cli:app"
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "black", "isort", "mypy", "types-PyYAML"]
-openai = ["openai>=1.0.0"]
-
-[build-system]
-requires = ["setuptools>=61", "wheel"]
-build-backend = "setuptools.build_meta"
+dev = ["pytest>=7.0"]
 
 [tool.setuptools.packages.find]
-include = ["douglas*"]
-
-[tool.isort]
-profile = "black"
-
-[tool.mypy]
-
-[[tool.mypy.overrides]]
-module = ["yaml"]
-ignore_missing_imports = true
+include = ["douglas*" ]

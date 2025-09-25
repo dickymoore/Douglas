@@ -7,7 +7,11 @@ import os
 from collections.abc import Mapping, Sequence
 from typing import Any, List, Optional
 
+from douglas.logging_utils import get_logger
 from douglas.providers.llm_provider import LLMProvider
+
+
+logger = get_logger(__name__)
 
 
 class GeminiProvider(LLMProvider):
@@ -36,18 +40,17 @@ class GeminiProvider(LLMProvider):
         if self._client is not None:
             return
 
-        try:
-            genai = importlib.import_module("google.generativeai")
-        except ImportError:
-            print(
-                "Warning: The 'google-generativeai' package is not installed. Install it "
-                "with 'pip install google-generativeai' to enable Gemini integration."
+        if not self._api_key:
+            logger.warning(
+                "GEMINI_API_KEY not set. Falling back to Gemini stub output."
             )
             return
 
-        if not self._api_key:
-            print(
-                "Warning: GEMINI_API_KEY not set. Falling back to Gemini stub output."
+        try:
+            genai = importlib.import_module("google.generativeai")
+        except ImportError:
+            logger.warning(
+                "The 'google-generativeai' package is not installed. Install it with 'pip install google-generativeai' to enable Gemini integration."
             )
             return
 
@@ -57,14 +60,13 @@ class GeminiProvider(LLMProvider):
                 configure(api_key=self._api_key)
             client_factory = getattr(genai, "GenerativeModel", None)
             if client_factory is None:
-                print(
-                    "Warning: google-generativeai SDK does not expose GenerativeModel. "
-                    "Falling back to Gemini stub output."
+                logger.warning(
+                    "google-generativeai SDK does not expose GenerativeModel. Falling back to Gemini stub output."
                 )
                 return
             self._client = client_factory(self.model)
         except Exception as exc:  # pragma: no cover - defensive against SDK issues
-            print(f"Warning: Failed to initialise Gemini client: {exc}")
+            logger.warning("Failed to initialise Gemini client: %s", exc)
             self._client = None
 
     def generate_code(self, prompt: str) -> str:
@@ -74,18 +76,14 @@ class GeminiProvider(LLMProvider):
         try:
             response = self._client.generate_content(prompt)
         except Exception as exc:  # pragma: no cover - network/SDK failures
-            print(
-                f"Warning: Gemini request failed ({exc}). Falling back to stub output."
-            )
+            logger.warning("Gemini request failed (%s). Falling back to stub output.", exc)
             return self._fallback(prompt)
 
         text = self._extract_text(response)
         if text:
             return text
 
-        print(
-            "Warning: Received empty response from Gemini. Falling back to stub output."
-        )
+        logger.warning("Received empty response from Gemini. Falling back to stub output.")
         return self._fallback(prompt)
 
     def _extract_text(self, response: Any) -> str:
@@ -138,6 +136,8 @@ class GeminiProvider(LLMProvider):
         return ""
 
     def _fallback(self, prompt: str) -> str:  # pragma: no cover - log output only
-        print("[GeminiProvider] Falling back to placeholder output. Prompt preview:")
-        print(prompt[:200])
+        logger.warning(
+            "Gemini provider fallback triggered; returning placeholder output."
+        )
+        logger.debug("Gemini fallback prompt preview:\n%s", prompt[:200])
         return "# Gemini API unavailable; no code generated."

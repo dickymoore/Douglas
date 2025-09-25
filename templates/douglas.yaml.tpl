@@ -8,8 +8,19 @@ ai:
   providers:
     codex:
       provider: "codex"
-      model: "code-davinci-002"
+      model: "gpt-5-codex"
   prompt: "system_prompt.md"
+planning:
+  enabled: true
+  sprint_zero_only: false
+  first_day_only: true
+  backlog_file: "ai-inbox/backlog/pre-features.yaml"
+  allow_overwrite: false
+  goal: "Facilitate Sprint Zero by brainstorming epics, features, user stories, and tasks before coding begins."
+  charters:
+    enabled: true
+    directory: "ai-inbox/charters"
+    allow_overwrite: false
 cadence:
   Developer:
     development: daily
@@ -36,6 +47,14 @@ cadence:
     status_update: on_demand
 loop:
   steps:
+    - name: standup
+      role: ScrumMaster
+      activity: daily_standup
+      cadence: daily
+    - name: plan
+      role: ProductOwner
+      activity: backlog_refinement
+      cadence: daily
     - name: generate
       role: Developer
       activity: development
@@ -71,8 +90,11 @@ loop:
     - name: pr
       role: Developer
       activity: code_review
+  exit_condition_mode: "all"
   exit_conditions:
-    - "ci_pass"
+    - "feature_delivery_complete"
+    - "sprint_demo_complete"
+  exhaustive: false
 sprint:
   length_days: 10
 push_policy: "per_feature"
@@ -104,13 +126,18 @@ paths:
   run_state_file: "user-portal/run-state.txt"
 agents:
   roles:
-    - "developer"
-    - "tester"
-    - "product_owner"
-    - "scrum_master"
-    - "designer"
-    - "ba"
-    - "devops"
+    - "Developer"
+    - "Tester"
+    - "Product Owner"
+    - "Scrum Master"
+    - "Designer"
+    - "Business Analyst"
+    - "DevOps"
+    - "Account Manager"
+accountability:
+  enabled: true
+  stall_iterations: 3
+  soft_stop: true
 run_state:
   allowed:
     - "CONTINUE"

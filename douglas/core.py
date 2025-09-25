@@ -1,4 +1,6 @@
+import importlib.resources as resources
 import json
+import os
 import re
 import shlex
 import shutil
@@ -21,6 +23,8 @@ from douglas.journal import agent_io
 from douglas.journal import questions as question_journal
 from douglas.pipelines import demo as demopipe
 from douglas.pipelines import lint
+from douglas.pipelines import plan as planpipe
+from douglas.pipelines import standup as standuppipe
 from douglas.pipelines import retro as retropipe
 from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
@@ -36,8 +40,12 @@ from douglas.providers.provider_registry import (
     StaticLLMProviderRegistry,
 )
 from douglas.sprint_manager import CadenceDecision, SprintManager
+from douglas.logging_utils import configure_logging, get_logger
 
 TEMPLATE_ROOT = Path(__file__).resolve().parent.parent / "templates"
+
+
+logger = get_logger(__name__)
 
 
 _DEFAULT_PROVIDER_MODELS = {
@@ -95,6 +103,188 @@ class Douglas:
 
     MAX_LOG_EXCERPT_LENGTH = 4000  # Default number of characters retained from the end of CI logs and bug report excerpts.
 
+    DEFAULT_INIT_TEMPLATE: Dict[str, Any] = {
+        "project": {
+            "name": "PROJECT_NAME",
+            "description": "Project description",
+            "license": "MIT",
+            "language": "python",
+        },
+        "ai": {
+            "default_provider": "codex",
+            "providers": {
+                "codex": {
+                    "provider": "codex",
+                    "model": CodexProvider.DEFAULT_MODEL,
+                }
+            },
+            "prompt": "system_prompt.md",
+        },
+        "planning": {
+            "enabled": True,
+            "sprint_zero_only": False,
+            "first_day_only": True,
+            "backlog_file": "ai-inbox/backlog/pre-features.yaml",
+            "allow_overwrite": False,
+            "goal": "Facilitate Sprint Zero by brainstorming epics, features, user stories, and tasks before coding begins.",
+            "charters": {
+                "enabled": True,
+                "directory": "ai-inbox/charters",
+                "allow_overwrite": False,
+            },
+        },
+        "cadence": {
+            "Developer": {
+                "development": "daily",
+                "quality_checks": "daily",
+                "code_review": "per_feature",
+            },
+            "Tester": {"test_cases": "daily"},
+            "ProductOwner": {
+                "backlog_refinement": "per_sprint",
+                "sprint_review": "per_sprint",
+            },
+            "ScrumMaster": {
+                "daily_standup": "daily",
+                "retrospective": "per_sprint",
+            },
+            "DevOps": {
+                "release": "per_feature",
+                "security_checks": "per_feature",
+            },
+            "Designer": {
+                "design_review": "per_sprint",
+                "ux_review": "per_feature",
+            },
+            "BA": {"requirements_analysis": "per_sprint"},
+            "Stakeholder": {
+                "check_in": "per_sprint",
+                "status_update": "on_demand",
+            },
+        },
+        "loop": {
+            "steps": [
+                {
+                    "name": "standup",
+                    "role": "ScrumMaster",
+                    "activity": "daily_standup",
+                    "cadence": "daily",
+                },
+                {
+                    "name": "plan",
+                    "role": "ProductOwner",
+                    "activity": "backlog_refinement",
+                    "cadence": "daily",
+                },
+                {
+                    "name": "generate",
+                    "role": "Developer",
+                    "activity": "development",
+                },
+                {
+                    "name": "lint",
+                    "role": "Developer",
+                    "activity": "quality_checks",
+                },
+                {
+                    "name": "typecheck",
+                    "role": "Developer",
+                    "activity": "quality_checks",
+                },
+                {
+                    "name": "security",
+                    "role": "DevOps",
+                    "activity": "security_checks",
+                },
+                {
+                    "name": "test",
+                    "role": "Tester",
+                    "activity": "test_cases",
+                },
+                {
+                    "name": "review",
+                    "role": "Developer",
+                    "activity": "code_review",
+                },
+                {
+                    "name": "retro",
+                    "role": "ScrumMaster",
+                    "activity": "retrospective",
+                    "cadence": "per_sprint",
+                },
+                {
+                    "name": "demo",
+                    "role": "ProductOwner",
+                    "activity": "sprint_review",
+                    "cadence": "per_sprint",
+                },
+                {
+                    "name": "commit",
+                    "role": "Developer",
+                    "activity": "development",
+                },
+                {
+                    "name": "push",
+                    "role": "DevOps",
+                    "activity": "release",
+                },
+                {
+                    "name": "pr",
+                    "role": "Developer",
+                    "activity": "code_review",
+                },
+            ],
+            "exit_condition_mode": "all",
+            "exit_conditions": ["feature_delivery_complete", "sprint_demo_complete"],
+            "exhaustive": False,
+        },
+        "demo": {
+            "format": "md",
+            "include": [
+                "implemented_features",
+                "how_to_run",
+                "test_results",
+                "limitations",
+                "next_steps",
+            ],
+        },
+        "retro": {
+            "outputs": ["role_instructions", "pre_feature_backlog"],
+            "backlog_file": "ai-inbox/backlog/pre-features.yaml",
+        },
+        "history": {"max_log_excerpt_length": MAX_LOG_EXCERPT_LENGTH},
+        "paths": {
+            "inbox_dir": "ai-inbox",
+            "app_src": "src",
+            "tests": "tests",
+            "demos_dir": "demos",
+            "sprint_prefix": "sprint-",
+            "questions_dir": "user-portal/questions",
+            "questions_archive_dir": "user-portal/questions-archive",
+            "user_portal_dir": "user-portal",
+            "run_state_file": "user-portal/run-state.txt",
+        },
+        "agents": {
+            "roles": [
+                "Developer",
+                "Tester",
+                "Product Owner",
+                "Scrum Master",
+                "Designer",
+                "Business Analyst",
+                "DevOps",
+                "Account Manager",
+            ]
+        },
+        "accountability": {
+            "enabled": True,
+            "stall_iterations": 3,
+            "soft_stop": True,
+        },
+        "run_state": {"allowed": ["CONTINUE", "SOFT_STOP", "HARD_STOP"]},
+        "qna": {"filename_pattern": "sprint-{sprint}-{role}-{id}.md"},
+    }
+
     def __init__(
         self,
         config_path: Union[str, Path, None] = "douglas.yaml",
@@ -128,6 +318,13 @@ class Douglas:
             self.config = deepcopy(source_config)
         self.project_root = self.config_path.resolve().parent
         self.project_name = self.config.get("project", {}).get("name", "")
+
+        log_file_override = os.getenv("DOUGLAS_LOG_FILE")
+        if log_file_override:
+            configure_logging(log_file=log_file_override)
+        else:
+            default_log_path = self.project_root / "ai-inbox" / "logs" / "douglas.log"
+            configure_logging(log_file=str(default_log_path))
 
         vcs_config: Mapping[str, Any] = {}
         raw_vcs = self.config.get("vcs")
@@ -165,6 +362,60 @@ class Douglas:
         )
         self._run_state_path = self._resolve_run_state_path()
         self._soft_stop_pending = False
+        accountability_cfg = self.config.get("accountability", {}) or {}
+        self._accountability_enabled = bool(accountability_cfg.get("enabled", True))
+        stall_value = accountability_cfg.get("stall_iterations", 3)
+        try:
+            self._accountability_stall_threshold = max(1, int(stall_value))
+        except (TypeError, ValueError):
+            self._accountability_stall_threshold = 3
+        self._accountability_soft_stop = bool(accountability_cfg.get("soft_stop", True))
+        self._iterations_without_progress = 0
+
+    @staticmethod
+    def load_scaffold_config() -> Dict[str, Any]:
+        template_candidates: List[Path] = []
+        try:
+            package_template = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+        except ModuleNotFoundError:
+            package_template = None
+        else:
+            template_candidates.append(package_template)
+
+        template_candidates.append(TEMPLATE_ROOT / "douglas.yaml.tpl")
+
+        template_text = None
+        last_missing: Optional[FileNotFoundError] = None
+        for candidate in template_candidates:
+            try:
+                template_text = candidate.read_text(encoding="utf-8")
+            except FileNotFoundError as exc:
+                last_missing = exc
+                continue
+            except OSError as exc:
+                print(
+                    f"Unable to read template file '{candidate}': {exc}. Using fallback defaults."
+                )
+                return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
+
+            if template_text is not None:
+                break
+
+        if template_text is None:
+            if last_missing is not None:
+                missing_location = last_missing.filename or "douglas.yaml.tpl"
+            else:
+                missing_location = "douglas.yaml.tpl"
+            print(
+                f"Template file '{missing_location}' not found; using fallback defaults."
+            )
+            return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
+
+        rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
+        data = yaml.safe_load(rendered) or {}
+        if not isinstance(data, dict):
+            return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
+        return data
 
     def load_config(self, path):
         try:
@@ -250,8 +501,8 @@ class Douglas:
     def _resolve_sprint_length(self) -> Optional[int]:
         sprint_config = self.config.get("sprint", {}) or {}
         if "length" in sprint_config:
-            print(
-                "Warning: 'length' is deprecated. Please use 'length_days' in the sprint configuration."
+            logger.warning(
+                "'length' is deprecated. Please use 'length_days' in the sprint configuration."
             )
         raw_length = sprint_config.get("length_days")
         if raw_length is None:
@@ -259,14 +510,15 @@ class Douglas:
         try:
             length = int(raw_length)
         except (TypeError, ValueError):
-            print(
-                f"Warning: Invalid sprint length '{raw_length}'; falling back to default cadence."
+            logger.warning(
+                "Invalid sprint length '%s'; falling back to default cadence.",
+                raw_length,
             )
             return None
         if length <= 0:
-            print(
-                f"Warning: Sprint length must be positive; defaulting to "
-                f"{self.DEFAULT_SPRINT_LENGTH_DAYS} days."
+            logger.warning(
+                "Sprint length must be positive; defaulting to %d days.",
+                self.DEFAULT_SPRINT_LENGTH_DAYS,
             )
             return None
         return length
@@ -280,8 +532,8 @@ class Douglas:
 
         normalized = str(candidate).strip().lower()
         if normalized not in self.SUPPORTED_PUSH_POLICIES:
-            print(
-                f"Warning: Unsupported push_policy '{candidate}'; defaulting to per_feature."
+            logger.warning(
+                "Unsupported push_policy '%s'; defaulting to per_feature.", candidate
             )
             return "per_feature"
         return normalized
@@ -296,16 +548,17 @@ class Douglas:
         try:
             value = int(candidate)
         except (TypeError, ValueError):
-            print(
-                "Warning: Invalid history.max_log_excerpt_length value "
-                f"'{candidate}'; defaulting to {self.MAX_LOG_EXCERPT_LENGTH}."
+            logger.warning(
+                "Invalid history.max_log_excerpt_length value '%s'; defaulting to %d.",
+                candidate,
+                self.MAX_LOG_EXCERPT_LENGTH,
             )
             return self.MAX_LOG_EXCERPT_LENGTH
 
         if value <= 0:
-            print(
-                "Warning: history.max_log_excerpt_length must be positive; "
-                f"defaulting to {self.MAX_LOG_EXCERPT_LENGTH}."
+            logger.warning(
+                "history.max_log_excerpt_length must be positive; defaulting to %d.",
+                self.MAX_LOG_EXCERPT_LENGTH,
             )
             return self.MAX_LOG_EXCERPT_LENGTH
 
@@ -319,21 +572,22 @@ class Douglas:
             candidate = loop_config.get("iterations")
 
         if candidate is None:
-            return 1
+            return sys.maxsize
 
         try:
             value = int(candidate)
         except (TypeError, ValueError):
-            print(
-                f"Warning: Invalid loop iteration limit '{candidate}'; defaulting to 1 iteration."
+            logger.warning(
+                "Invalid loop iteration limit '%s'; defaulting to 1 iteration.",
+                candidate,
             )
             return 1
 
         if value <= 0:
-            print(
-                "Warning: Loop iteration limit must be positive; defaulting to 1 iteration."
+            logger.warning(
+                "loop iteration limit must be positive; defaulting to 1000 iterations."
             )
-            return 1
+            return 1000
 
         return value
 
@@ -387,6 +641,7 @@ class Douglas:
                     print("Exit condition satisfied; ending loop early.")
                     break
 
+                baseline_completed_features = len(self.sprint_manager.completed_features)
                 iteration_index += 1
                 self._refresh_question_state()
 
@@ -481,6 +736,12 @@ class Douglas:
 
                 self.sprint_manager.finish_iteration()
                 print("Douglas loop iteration completed.")
+
+                progress = self._iteration_had_progress(
+                    executed_steps, baseline_completed_features
+                )
+                self._accountability_monitor(progress)
+
                 last_executed_steps = executed_steps
 
                 if self._exit_conditions_met(executed_steps):
@@ -517,13 +778,13 @@ class Douglas:
                         merged["name"] = name
                         step_entry = merged
                 if not name:
-                    print("Warning: Skipping loop step without a name.")
+                    logger.warning("Skipping loop step without a name.")
                     continue
                 step_entry["name"] = str(name)
                 normalized.append(step_entry)
                 continue
 
-            print(f"Warning: Unsupported loop step configuration '{entry}'; skipping.")
+            logger.warning("Unsupported loop step configuration '%s'; skipping.", entry)
 
         return normalized
 
@@ -606,7 +867,7 @@ class Douglas:
         try:
             open_questions = question_journal.scan_for_answers(self._question_context())
         except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"Warning: Unable to scan for user questions: {exc}")
+            logger.warning("Unable to scan for user questions: %s", exc)
             self._blocking_questions_by_role = {}
             return
 
@@ -614,13 +875,15 @@ class Douglas:
         for item in open_questions:
             answer = (item.user_answer or "").strip()
             if answer:
-                print(f"Processing user answer for {item.id}: {item.topic}")
+                logger.info("Processing user answer for %s: %s", item.id, item.topic)
                 item.agent_follow_up = self._format_question_follow_up(item)
                 try:
                     question_journal.archive_question(item)
                 except Exception as exc:  # pragma: no cover - defensive logging
-                    print(
-                        f"Warning: Failed to archive answered question {item.id}: {exc}"
+                    logger.warning(
+                        "Failed to archive answered question %s: %s",
+                        item.id,
+                        exc,
                     )
                 continue
 
@@ -690,8 +953,11 @@ class Douglas:
         try:
             agent_io.append_summary(role, sprint_index, summary_text, meta)
         except Exception as exc:  # pragma: no cover - logging best effort
-            print(
-                f"Warning: Unable to record summary for role '{role}' during {step_name}: {exc}"
+            logger.warning(
+                "Unable to record summary for role '%s' during %s: %s",
+                role,
+                step_name,
+                exc,
             )
 
     def _raise_agent_handoff(
@@ -723,8 +989,11 @@ class Douglas:
                 meta,
             )
         except Exception as exc:  # pragma: no cover - logging best effort
-            print(
-                f"Warning: Unable to record handoff from '{from_role}' to '{to_role}': {exc}"
+            logger.warning(
+                "Unable to record handoff from '%s' to '%s': %s",
+                from_role,
+                to_role,
+                exc,
             )
             return None
 
@@ -767,8 +1036,123 @@ class Douglas:
         return bug_id
 
     def _exit_conditions_met(self, executed_steps: List[str]) -> bool:
-        exit_conditions = self.config.get("loop", {}).get("exit_conditions") or []
+        loop_config = self.config.get("loop", {}) or {}
+        exit_conditions = list(loop_config.get("exit_conditions") or [])
+        mode = str(loop_config.get("exit_condition_mode", "any")).lower()
+
+        if loop_config.get("exhaustive"):
+            if "all_work_complete" not in exit_conditions:
+                exit_conditions.append("all_work_complete")
+            mode = "all"
+
+        if not exit_conditions:
+            return False
+
+        results: List[bool] = []
         for condition in exit_conditions:
+MERGE_CONFLICT< feature/codex
+            satisfied = self._evaluate_exit_condition(condition, executed_steps)
+            results.append(satisfied)
+
+        if mode == "all":
+            return all(results)
+
+        return any(results)
+
+    def _evaluate_exit_condition(
+        self, condition: str, executed_steps: List[str]
+    ) -> bool:
+        if condition == "sprint_demo_complete":
+            return self.sprint_manager.has_step_run("demo")
+        if condition == "tests_pass":
+            return self._loop_outcomes.get("test") is True
+        if condition == "lint_pass":
+            return self._loop_outcomes.get("lint") is True
+        if condition == "typecheck_pass":
+            return self._loop_outcomes.get("typecheck") is True
+        if condition == "local_checks_pass":
+            return self._loop_outcomes.get("local_checks") is True
+        if condition == "push_complete":
+            return self._loop_outcomes.get("push") is True
+        if condition == "pr_created":
+            return self._loop_outcomes.get("pr") is True
+        if condition == "ci_pass":
+            return self._ci_status == "success"
+        if condition == "feature_delivery_complete":
+            return self._feature_delivery_complete()
+        if condition == "all_work_complete":
+            return self._all_work_complete()
+        if condition == "all_features_delivered":
+            return self._all_features_delivered()
+        if condition == "feature_delivery_goal":
+            return self._feature_delivery_goal_met()
+
+        logger.debug("Unknown exit condition '%s' treated as unsatisfied.", condition)
+        return False
+
+    def _feature_delivery_complete(self) -> bool:
+        if not self.sprint_manager.completed_features:
+            return False
+        outstanding = self.sprint_manager.outstanding_features()
+        if outstanding > 0:
+            return False
+        return self._loop_outcomes.get("push") is True
+
+    def _all_work_complete(self) -> bool:
+        outstanding = self.sprint_manager.outstanding_work_summary()
+        if any(value > 0 for value in outstanding.values()):
+            return False
+        if not self.sprint_manager.has_step_run("demo"):
+            return False
+        if self._loop_outcomes.get("push") is not True:
+            return False
+        # Ensure tests and lint/typecheck succeeded on final pass
+        return (
+            self._loop_outcomes.get("test") is True
+            and self._loop_outcomes.get("lint") is True
+            and self._loop_outcomes.get("typecheck") is True
+        )
+
+    def _all_features_delivered(self) -> bool:
+        outstanding = self.sprint_manager.outstanding_features()
+        if outstanding > 0:
+            return False
+        if not self.sprint_manager.completed_features:
+            return False
+        return self._loop_outcomes.get("push") is True
+
+    def _feature_delivery_goal_met(self) -> bool:
+        goal = self._resolve_feature_goal()
+        if goal is None:
+            return False
+        if len(self.sprint_manager.completed_features) < goal:
+            return False
+        if self.sprint_manager.outstanding_features() > 0:
+            return False
+        return (
+            self._loop_outcomes.get("push") is True
+            and self._loop_outcomes.get("test") is True
+        )
+
+    def _resolve_feature_goal(self) -> Optional[int]:
+        loop_config = self.config.get("loop", {}) or {}
+        candidate = loop_config.get("feature_goal")
+        if candidate is None:
+            return None
+        try:
+            value = int(candidate)
+        except (TypeError, ValueError):
+            logger.warning("Invalid feature_goal '%s'; ignoring.", candidate)
+            return None
+        return value if value > 0 else None
+
+    def _iteration_had_progress(
+        self, executed_steps: List[str], baseline_completed_features: int
+    ) -> bool:
+        progress_steps = ("generate", "commit", "push", "pr")
+        for name in progress_steps:
+            if self._loop_outcomes.get(name) is True:
+MERGE_CONFLICT=
             if (
                 condition == "sprint_demo_complete"
                 and self.sprint_manager.has_step_run("demo")
@@ -793,8 +1177,51 @@ class Douglas:
             if condition == "pr_created" and self._loop_outcomes.get("pr") is True:
                 return True
             if condition == "ci_pass" and self._ci_status == "success":
+MERGE_CONFLICT> main
                 return True
+        if len(self.sprint_manager.completed_features) > baseline_completed_features:
+            return True
         return False
+
+    def _accountability_monitor(self, progress_made: bool) -> None:
+        if not self._accountability_enabled:
+            return
+        if progress_made:
+            self._iterations_without_progress = 0
+            return
+        self._iterations_without_progress += 1
+        if self._iterations_without_progress >= self._accountability_stall_threshold:
+            self._iterations_without_progress = 0
+            self._raise_accountability_alert()
+
+    def _raise_accountability_alert(self) -> None:
+        sprint_index = self.sprint_manager.sprint_index
+        summary = (
+            "Detected repeated iterations without meaningful progress. Raising soft stop."
+        )
+        details = {
+            "status": "alert",
+            "stall_iterations": self._accountability_stall_threshold,
+            "completed_features": len(self.sprint_manager.completed_features),
+        }
+        self._write_history_event(
+            "accountability_alert",
+            {
+                "sprint": sprint_index,
+                "stall_iterations": self._accountability_stall_threshold,
+            },
+        )
+        self._record_agent_summary(
+            "AccountManager",
+            "monitor",
+            summary,
+            details,
+        )
+        if self._accountability_soft_stop:
+            print(
+                "Account Manager detected sustained lack of progress; requesting soft stop."
+            )
+            self._soft_stop_pending = True
 
     def _execute_step(
         self,
@@ -807,8 +1234,182 @@ class Douglas:
 
         if step_name == "generate":
             print("Running generate step...")
-            self.generate()
-            return StepExecutionResult(True, True, override_event, already_recorded)
+            changes_applied = bool(self.generate())
+            return StepExecutionResult(True, changes_applied, override_event, already_recorded)
+
+        if step_name == "standup":
+            print("Running standup step...")
+            planning_config = self.config.get("planning") or {}
+            backlog_relative = planning_config.get(
+                "backlog_file",
+                self.config.get("retro", {}).get("backlog_file", "ai-inbox/backlog/pre-features.yaml"),
+            )
+            backlog_path = self.project_root / backlog_relative
+            questions_dir = self.project_root / self.config.get("paths", {}).get(
+                "questions_dir", "user-portal/questions"
+            )
+            standup_output_dir = (
+                self.project_root
+                / "ai-inbox"
+                / "sprints"
+                / f"sprint-{self.sprint_manager.sprint_index}"
+                / "standups"
+            )
+
+            standup_context = standuppipe.StandupContext(
+                project_root=self.project_root,
+                sprint_index=self.sprint_manager.sprint_index,
+                sprint_day=self.sprint_manager.current_day,
+                backlog_path=backlog_path,
+                questions_dir=questions_dir,
+                output_dir=standup_output_dir,
+                planning_config=planning_config,
+            )
+
+            standup_result = standuppipe.run_standup(standup_context)
+            summary_details = {
+                "status": "recorded" if standup_result.wrote_report else "skipped",
+                "output": str(standup_result.output_path.relative_to(self.project_root)),
+                "stories": standup_result.story_count,
+                "blockers": standup_result.blocker_count,
+            }
+            self._record_agent_summary(
+                "ScrumMaster",
+                "standup",
+                "Documented daily standup snapshot.",
+                summary_details,
+            )
+            self._write_history_event(
+                "standup_snapshot",
+                {
+                    "sprint": self.sprint_manager.sprint_index,
+                    "day": self.sprint_manager.current_day,
+                    "output": summary_details["output"],
+                    "stories": standup_result.story_count,
+                    "blockers": standup_result.blocker_count,
+                },
+            )
+            self._loop_outcomes["standup"] = summary_details
+            return StepExecutionResult(True, True, None, already_recorded)
+
+        if step_name == "plan":
+            print("Running plan step...")
+            planning_config = self.config.get("planning") or {}
+            if not planning_config.get("enabled", True):
+                print("Planning disabled; skipping plan step.")
+                self._record_agent_summary(
+                    "ProductOwner",
+                    "plan",
+                    "Planning disabled in configuration.",
+                    {"status": "skipped"},
+                )
+                self._loop_outcomes["plan"] = {"status": "skipped"}
+                return StepExecutionResult(False, False, None, already_recorded)
+
+            if planning_config.get("first_day_only", False) and self.sprint_manager.current_day > 1:
+                print("Skipping plan step: planning restricted to the first day of each sprint.")
+                self._record_agent_summary(
+                    "ProductOwner",
+                    "plan",
+                    "Planning limited to sprint day 1; skipping.",
+                    {"status": "skipped"},
+                )
+                self._loop_outcomes["plan"] = {"status": "skipped"}
+                return StepExecutionResult(False, False, None, already_recorded)
+
+            if planning_config.get("sprint_zero_only", True) and (
+                self.sprint_manager.sprint_index > 1
+                or self.sprint_manager.current_day > 1
+            ):
+                print(
+                    "Skipping plan step: planning configured for Sprint Zero only and sprint has progressed."
+                )
+                self._record_agent_summary(
+                    "ProductOwner",
+                    "plan",
+                    "Sprint Zero planning already completed.",
+                    {"status": "skipped"},
+                )
+                self._loop_outcomes["plan"] = {"status": "skipped"}
+                return StepExecutionResult(False, False, None, already_recorded)
+
+            backlog_relative = planning_config.get(
+                "backlog_file",
+                self.config.get("retro", {}).get("backlog_file", "ai-inbox/backlog/pre-features.yaml"),
+            )
+            backlog_path = self.project_root / backlog_relative
+            system_prompt_name = self.config.get("ai", {}).get("prompt", "system_prompt.md")
+            system_prompt_path = self.project_root / system_prompt_name
+
+            llm = self._resolve_llm_provider("ProductOwner", "plan")
+
+            plan_context = planpipe.PlanContext(
+                project_name=self.config.get("project", {}).get("name", "Unknown Project"),
+                project_description=self.config.get("project", {}).get("description", ""),
+                project_root=self.project_root,
+                backlog_path=backlog_path,
+                system_prompt_path=system_prompt_path,
+                sprint_index=self.sprint_manager.sprint_index,
+                sprint_day=self.sprint_manager.current_day,
+                planning_config=planning_config,
+                llm=llm,
+                agent_roles=list(
+                    self.config.get("agents", {}).get("roles", []) or []
+                ),
+            )
+
+            plan_result = planpipe.run_plan(plan_context)
+
+            if plan_result.created_backlog:
+                try:
+                    backlog_display = str(
+                        plan_result.backlog_path.relative_to(self.project_root)
+                    )
+                except ValueError:
+                    backlog_display = str(plan_result.backlog_path)
+                message = (
+                    "Seeded initial backlog with "
+                    f"{plan_result.epic_count()} epics and {plan_result.feature_count()} features."
+                )
+                summary_details = {
+                    "status": "seeded",
+                    "backlog_path": backlog_display,
+                    "epics": plan_result.epic_count(),
+                    "features": plan_result.feature_count(),
+                }
+                self._write_history_event(
+                    "backlog_planning",
+                    {
+                        "status": "seeded",
+                        "backlog_path": backlog_display,
+                        "epics": plan_result.epic_count(),
+                        "features": plan_result.feature_count(),
+                    },
+                )
+            else:
+                reason = _friendly_plan_reason(plan_result.reason)
+                message = f"Planning skipped: {reason}."
+                summary_details = {"status": "skipped", "reason": reason}
+
+            if plan_result.charter_paths:
+                charter_map: Dict[str, str] = {}
+                for name, path in plan_result.charter_paths.items():
+                    try:
+                        relative = path.relative_to(self.project_root)
+                    except ValueError:
+                        relative = path
+                    charter_map[name] = str(relative)
+                summary_details["charters"] = charter_map
+
+            self._record_agent_summary(
+                "ProductOwner",
+                "plan",
+                message,
+                summary_details,
+            )
+            print(message)
+            self._loop_outcomes["plan"] = summary_details
+            return StepExecutionResult(True, plan_result.created_backlog, None, already_recorded)
 
         if step_name == "lint":
             print("Running lint step...")
@@ -1117,7 +1718,7 @@ class Douglas:
                     "No staged changes available for committing.",
                     {"status": "skipped"},
                 )
-            return StepExecutionResult(True, True, override_event, already_recorded)
+            return StepExecutionResult(True, committed, override_event, already_recorded)
 
         if step_name == "push":
             print("Running push step...")
@@ -1545,7 +2146,7 @@ class Douglas:
             )
         except FileNotFoundError as exc:
             message = f"git not available to push changes: {exc}"
-            print(f"Warning: {message}")
+            logger.warning("%s", message)
             return False, message
 
         logs.append(
@@ -1559,13 +2160,13 @@ class Douglas:
 
         error_msg = result.stderr.strip() or result.stdout.strip()
         if error_msg:
-            print(f"Warning: git push failed: {error_msg}")
+            logger.warning("git push failed: %s", error_msg)
         else:
-            print("Warning: git push failed without diagnostics.")
+            logger.warning("git push failed without diagnostics.")
 
         lowered_error = (error_msg or "").lower()
         if "rejected" in lowered_error or "non-fast-forward" in lowered_error:
-            print("Push rejected; attempting fast-forward pull.")
+            logger.info("Push rejected; attempting fast-forward pull.")
             pull_cmd = ["git", "pull", "--ff-only", remote, branch]
             try:
                 pull_result = subprocess.run(
@@ -1576,7 +2177,7 @@ class Douglas:
                 )
             except FileNotFoundError as exc:
                 message = f"git not available to pull changes: {exc}"
-                print(f"Warning: {message}")
+                logger.warning("%s", message)
                 logs.append(message)
                 return False, "\n\n".join(logs)
 
@@ -1599,7 +2200,7 @@ class Douglas:
                     )
                 except FileNotFoundError as exc:
                     message = f"git not available to retry push: {exc}"
-                    print(f"Warning: {message}")
+                    logger.warning("%s", message)
                     logs.append(message)
                     return False, "\n\n".join(logs)
 
@@ -1617,7 +2218,7 @@ class Douglas:
 
                 retry_error = retry_result.stderr.strip() or retry_result.stdout.strip()
                 if retry_error:
-                    print(f"Warning: git push retry failed: {retry_error}")
+                    logger.warning("git push retry failed: %s", retry_error)
 
         return False, "\n\n".join(logs)
 
@@ -1641,7 +2242,7 @@ class Douglas:
                 head=head_branch,
             )
         except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"Warning: Unable to create pull request: {exc}")
+            logger.warning("Unable to create pull request: %s", exc)
             return False, str(exc)
         return True, metadata
 
@@ -1671,7 +2272,7 @@ class Douglas:
                 text=True,
             ).strip()
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(f"Warning: Unable to collect latest commit summary: {exc}")
+            logger.warning("Unable to collect latest commit summary: %s", exc)
             return "", ""
         return subject, body
 
@@ -1789,7 +2390,7 @@ class Douglas:
                     text=True,
                 )
             except FileNotFoundError as exc:
-                print(f"Warning: GitHub CLI not available for CI monitoring: {exc}")
+                logger.warning("GitHub CLI not available for CI monitoring: %s", exc)
                 self._ci_status = None
                 self._record_agent_summary(
                     "DevOps",
@@ -1807,14 +2408,14 @@ class Douglas:
                 message = (
                     result.stderr.strip() or result.stdout.strip() or "unknown error"
                 )
-                print(f"Warning: Unable to list GitHub runs: {message}")
+                logger.warning("Unable to list GitHub runs: %s", message)
                 time.sleep(poll_interval)
                 continue
 
             try:
                 runs = json.loads(result.stdout or "[]")
             except json.JSONDecodeError as exc:
-                print(f"Warning: Unable to parse GitHub run list: {exc}")
+                logger.warning("Unable to parse GitHub run list: %s", exc)
                 time.sleep(poll_interval)
                 continue
 
@@ -1831,12 +2432,16 @@ class Douglas:
             run_url = target_run.get("url")
 
             if status != "completed":
-                print(f"Waiting for CI run {run_id} to complete (status: {status}).")
+                logger.info(
+                    "Waiting for CI run %s to complete (status: %s).",
+                    run_id,
+                    status,
+                )
                 time.sleep(poll_interval)
                 continue
 
             if conclusion == "success":
-                print("CI checks succeeded for the latest commit.")
+                logger.info("CI checks succeeded for the latest commit.")
                 self._ci_status = "success"
                 self._write_history_event(
                     "ci_pass",
@@ -1924,7 +2529,7 @@ class Douglas:
             )
             return False
 
-        print("CI run not found or did not complete within the monitoring window.")
+        logger.info("CI run not found or did not complete within the monitoring window.")
         self._ci_status = None
         self._record_agent_summary(
             "DevOps",
@@ -1944,7 +2549,7 @@ class Douglas:
         if not run_id:
             return None
         if shutil.which("gh") is None:
-            print("GitHub CLI not available; cannot download CI logs.")
+            logger.warning("GitHub CLI not available; cannot download CI logs.")
             return None
 
         log_dir = self.project_root / "ai-inbox" / "ci"
@@ -1959,18 +2564,18 @@ class Douglas:
                 text=True,
             )
         except FileNotFoundError as exc:
-            print(f"Warning: GitHub CLI not available to download CI logs: {exc}")
+            logger.warning("GitHub CLI not available to download CI logs: %s", exc)
             return None
 
         if result.returncode != 0:
             message = result.stderr.strip() or result.stdout.strip() or "unknown error"
-            print(f"Warning: Unable to download CI logs: {message}")
+            logger.warning("Unable to download CI logs: %s", message)
             return None
 
         try:
             log_path.write_text(result.stdout, encoding="utf-8")
         except OSError as exc:
-            print(f"Warning: Unable to write CI log file: {exc}")
+            logger.warning("Unable to write CI log file: %s", exc)
             return None
 
         return log_path
@@ -2021,7 +2626,7 @@ class Douglas:
             with bug_file.open("a", encoding="utf-8") as handle:
                 handle.write("".join(entry_lines))
         except OSError as exc:
-            print(f"Warning: Unable to write bug ticket: {exc}")
+            logger.warning("Unable to write bug ticket: %s", exc)
 
         self._write_history_event(
             "bug_reported",
@@ -2051,7 +2656,7 @@ class Douglas:
                 handle.write(json.dumps(payload, sort_keys=False))
                 handle.write("\n")
         except OSError as exc:
-            print(f"Warning: Unable to write history event: {exc}")
+            logger.warning("Unable to write history event: %s", exc)
 
     def _write_history_event(
         self, event_type: str, payload: Optional[Dict[str, Any]] = None
@@ -2082,9 +2687,10 @@ class Douglas:
             pass
 
     def generate(self):
-        self._run_agent_with_state("Developer", "generate", self._generate_impl)
+        return self._run_agent_with_state("Developer", "generate", self._generate_impl)
 
     def _generate_impl(self):
+        changes_applied = False
         prompt = self._build_generation_prompt()
         if not prompt:
             print("No prompt constructed for generation step; skipping.")
@@ -2094,7 +2700,7 @@ class Douglas:
                 "Generation step skipped because no prompt was constructed.",
                 {"status": "skipped"},
             )
-            return
+            return False
 
         print("Invoking language model to propose code changes...")
         provider = self._resolve_llm_provider("Developer", "generate")
@@ -2108,7 +2714,11 @@ class Douglas:
                 "Generation step aborted due to language model error.",
                 {"status": "error", "error": str(exc)},
             )
-            return
+            self._write_history_event(
+                "llm_no_output",
+                {"step": "generate", "provider": provider.__class__.__name__, "reason": "exception", "error": str(exc)},
+            )
+            return False
 
         if not llm_output or not llm_output.strip():
             print("Language model returned an empty response; no changes applied.")
@@ -2118,7 +2728,11 @@ class Douglas:
                 "Language model returned no actionable changes during generation.",
                 {"status": "no_changes"},
             )
-            return
+            self._write_history_event(
+                "llm_no_output",
+                {"step": "generate", "provider": provider.__class__.__name__, "reason": "empty_response"},
+            )
+            return False
 
         applied_paths = self._apply_llm_output(llm_output)
         if applied_paths:
@@ -2128,12 +2742,19 @@ class Douglas:
                 "files_changed": sorted(applied_paths),
             }
             summary = f"Applied generated updates to {len(applied_paths)} file(s)."
+            changes_applied = True
         else:
             print("Model output did not yield any actionable changes.")
             details = {"status": "no_changes"}
             summary = "Model output did not yield any actionable changes."
+            if llm_output.strip().startswith("# Codex API unavailable"):
+                self._write_history_event(
+                    "llm_no_output",
+                    {"step": "generate", "provider": provider.__class__.__name__, "reason": "provider_fallback"},
+                )
 
         self._record_agent_summary("Developer", "generate", summary, details)
+        return changes_applied
 
     def review(self):
         self._run_agent_with_state("Developer", "review", self._review_impl)
@@ -2288,7 +2909,7 @@ class Douglas:
         try:
             return prompt_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as exc:
-            print(f"Warning: Unable to read system prompt '{prompt_path}': {exc}")
+            logger.warning("Unable to read system prompt '%s': %s", prompt_path, exc)
             return ""
 
     def _get_recent_commits(self, limit=5):
@@ -2302,7 +2923,7 @@ class Douglas:
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(f"Warning: Unable to retrieve recent commits: {exc}")
+            logger.warning("Unable to retrieve recent commits: %s", exc)
             return ""
 
     def _get_git_status(self):
@@ -2316,7 +2937,7 @@ class Douglas:
             )
             return result.stdout.strip()
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(f"Warning: Unable to determine git status: {exc}")
+            logger.warning("Unable to determine git status: %s", exc)
             return ""
 
     def _collect_open_tasks(self, limit=5):
@@ -2443,15 +3064,15 @@ class Douglas:
                 capture_output=True,
             )
         except FileNotFoundError as exc:
-            print(f"Warning: git not available to apply diff: {exc}")
+            logger.warning("git not available to apply diff: %s", exc)
             return set()
 
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip()
             if error_msg:
-                print(f"git apply failed: {error_msg}")
+                logger.warning("git apply failed: %s", error_msg)
             else:
-                print("git apply failed without diagnostics.")
+                logger.warning("git apply failed without diagnostics.")
             return set()
 
         print("Applied diff from model output.")
@@ -2503,7 +3124,11 @@ class Douglas:
             try:
                 resolved_path.write_text(content, encoding="utf-8")
             except OSError as exc:
-                print(f"Failed to write generated content to {resolved_path}: {exc}")
+                logger.warning(
+                    "Failed to write generated content to %s: %s",
+                    resolved_path,
+                    exc,
+                )
                 continue
             relative = resolved_path.relative_to(self.project_root)
             updated_paths.add(str(relative))
@@ -2624,15 +3249,15 @@ class Douglas:
                 text=True,
             )
         except FileNotFoundError as exc:
-            print(f"Warning: git not available to stage changes: {exc}")
+            logger.warning("git not available to stage changes: %s", exc)
             return
 
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip()
             if error_msg:
-                print(f"Warning: git add failed: {error_msg}")
+                logger.warning("git add failed: %s", error_msg)
             else:
-                print("Warning: git add failed without diagnostics.")
+                logger.warning("git add failed without diagnostics.")
             return
 
         print("Staged generated changes: " + ", ".join(sorted_paths))
@@ -2668,7 +3293,7 @@ class Douglas:
                 return diff_text
 
         if collected_error:
-            print(f"Warning: Unable to collect diff for review: {collected_error}")
+            logger.warning("Unable to collect diff for review: %s", collected_error)
         return ""
 
     def _record_review_feedback(self, feedback):
@@ -2712,7 +3337,7 @@ class Douglas:
                 f"Saved review feedback to {review_path.relative_to(self.project_root)}."
             )
         except OSError as exc:
-            print(f"Warning: Unable to save review feedback to {review_path}: {exc}")
+            logger.warning("Unable to save review feedback to %s: %s", review_path, exc)
 
     def _commit_if_needed(self) -> Tuple[bool, Optional[str]]:
         if not self._has_uncommitted_changes():
@@ -2759,14 +3384,15 @@ class Douglas:
             error_msg = exc.stderr or exc.stdout or ""
             error_msg = error_msg.strip()
             if error_msg:
-                print(
-                    f"Warning: Unable to determine git status for commit: {error_msg}"
+                logger.warning(
+                    "Unable to determine git status for commit: %s",
+                    error_msg,
                 )
             else:
-                print("Warning: Unable to determine git status for commit.")
+                logger.warning("Unable to determine git status for commit.")
             return False
         except FileNotFoundError as exc:
-            print(f"Warning: git not available to detect changes: {exc}")
+            logger.warning("git not available to detect changes: %s", exc)
             return False
 
         return bool(result.stdout.strip())
@@ -2780,15 +3406,15 @@ class Douglas:
                 text=True,
             )
         except FileNotFoundError as exc:
-            print(f"Warning: git not available to stage changes: {exc}")
+            logger.warning("git not available to stage changes: %s", exc)
             return False
 
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip()
             if error_msg:
-                print(f"Warning: git add -A failed: {error_msg}")
+                logger.warning("git add -A failed: %s", error_msg)
             else:
-                print("Warning: git add -A failed without diagnostics.")
+                logger.warning("git add -A failed without diagnostics.")
             return False
 
         return True
@@ -2803,7 +3429,7 @@ class Douglas:
                 check=True,
             )
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-            print(f"Warning: Unable to list staged files: {exc}")
+            logger.warning("Unable to list staged files: %s", exc)
             return []
 
         paths = [line.strip() for line in result.stdout.splitlines() if line.strip()]
@@ -2822,12 +3448,12 @@ class Douglas:
             error_msg = exc.stderr or exc.stdout or ""
             error_msg = error_msg.strip()
             if error_msg:
-                print(f"Warning: Unable to collect staged diff: {error_msg}")
+                logger.warning("Unable to collect staged diff: %s", error_msg)
             else:
-                print("Warning: Unable to collect staged diff.")
+                logger.warning("Unable to collect staged diff.")
             return ""
         except FileNotFoundError as exc:
-            print(f"Warning: git not available to collect staged diff: {exc}")
+            logger.warning("git not available to collect staged diff: %s", exc)
             return ""
 
         diff_text = result.stdout
@@ -2854,8 +3480,8 @@ class Douglas:
         try:
             response = provider.generate_code(prompt)
         except Exception as exc:
-            print(
-                f"Warning: Unable to generate commit message via language model: {exc}"
+            logger.warning(
+                "Unable to generate commit message via language model: %s", exc
             )
             return self.DEFAULT_COMMIT_MESSAGE
 
@@ -2922,15 +3548,15 @@ class Douglas:
                 text=True,
             )
         except FileNotFoundError as exc:
-            print(f"Warning: git not available to create commit: {exc}")
+            logger.warning("git not available to create commit: %s", exc)
             return False
 
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip()
             if error_msg:
-                print(f"Warning: git commit failed: {error_msg}")
+                logger.warning("git commit failed: %s", error_msg)
             else:
-                print("Warning: git commit failed without diagnostics.")
+                logger.warning("git commit failed without diagnostics.")
             return False
 
         return True
@@ -3008,13 +3634,14 @@ class Douglas:
             scaffold_name = resolved_name or "DouglasProject"
         normalized_template = (template or "python").strip().lower()
         if normalized_template not in {"python", "blank"}:
-            print(f"Warning: Unsupported template '{template}'; defaulting to python.")
+            logger.warning("Unsupported template '%s'; defaulting to python.", template)
             normalized_template = "python"
 
         policy_candidate = (push_policy or "per_feature").strip().lower()
         if policy_candidate not in self.SUPPORTED_PUSH_POLICIES:
-            print(
-                f"Warning: Unsupported push_policy '{push_policy}'; defaulting to per_feature."
+            logger.warning(
+                "Unsupported push_policy '%s'; defaulting to per_feature.",
+                push_policy,
             )
             policy_candidate = "per_feature"
 
@@ -3024,20 +3651,21 @@ class Douglas:
             else int(sprint_length)
         )
         if sprint_length_value <= 0:
-            print(
-                f"Warning: sprint length '{sprint_length_value}' is invalid; "
-                f"defaulting to {self.DEFAULT_SPRINT_LENGTH_DAYS}."
+            logger.warning(
+                "sprint length '%s' is invalid; defaulting to %d.",
+                sprint_length_value,
+                self.DEFAULT_SPRINT_LENGTH_DAYS,
             )
             sprint_length_value = self.DEFAULT_SPRINT_LENGTH_DAYS
 
         ci_choice = (ci or "github").strip().lower()
         if ci_choice not in {"github", "none"}:
-            print(f"Warning: Unsupported CI provider '{ci}'; defaulting to github.")
+            logger.warning("Unsupported CI provider '%s'; defaulting to github.", ci)
             ci_choice = "github"
 
         license_choice = (license_type or "none").strip().lower()
         if license_choice not in {"none", "mit"}:
-            print(f"Warning: Unsupported license '{license_type}'; defaulting to none.")
+            logger.warning("Unsupported license '%s'; defaulting to none.", license_type)
             license_choice = "none"
 
         configured_language = (
@@ -3083,43 +3711,49 @@ class Douglas:
         if not model_choice:
             model_choice = self._default_model_for_provider(provider_choice)
 
-        loop_steps = [
-            {"name": "generate"},
-            {"name": "lint"},
-            {"name": "typecheck"},
-            {"name": "test"},
-            {"name": "commit"},
-            {"name": "push"},
-            {"name": "pr"},
-        ]
+        config_template = deepcopy(self.load_scaffold_config())
 
-        ai_section: Dict[str, Any] = {
-            "default_provider": provider_choice,
-            "providers": {
-                provider_choice: {"provider": provider_choice},
-            },
-        }
-        if model_choice:
-            ai_section["providers"][provider_choice]["model"] = model_choice
-
-        config_template: Dict[str, Any] = {
-            "project": {
+        config_template.setdefault("project", {})
+        config_template["project"].update(
+            {
                 "name": scaffold_name,
                 "description": f"Project scaffolded by Douglas for {scaffold_name}.",
                 "language": language,
-            },
-            "ai": ai_section,
-            "loop": {
-                "steps": loop_steps,
-                "exit_conditions": ["ci_pass"],
-            },
-            "push_policy": policy_candidate,
-            "sprint": {"length_days": sprint_length_value},
-            "history": {"max_log_excerpt_length": self._max_log_excerpt_length},
-        }
+            }
+        )
+        if license_choice == "mit":
+            config_template["project"]["license"] = "MIT"
+        elif license_choice == "none":
+            config_template["project"]["license"] = "none"
+        else:
+            config_template["project"]["license"] = license_choice.upper()
 
+        ai_section: Dict[str, Any] = config_template.setdefault("ai", {})
+        providers_section = ai_section.setdefault("providers", {})
+        providers_section[provider_choice] = {
+            "provider": provider_choice,
+        }
+        if model_choice:
+            providers_section[provider_choice]["model"] = model_choice
+        ai_section["default_provider"] = provider_choice
         if normalized_template != "blank":
-            config_template["ai"]["prompt"] = "system_prompt.md"
+            ai_section["prompt"] = "system_prompt.md"
+
+        loop_section = config_template.setdefault("loop", {})
+        loop_section.setdefault("exit_condition_mode", "all")
+        loop_section.setdefault(
+            "exit_conditions",
+            ["feature_delivery_complete", "sprint_demo_complete"],
+        )
+        loop_section.setdefault("exhaustive", False)
+        if not loop_section.get("steps"):
+            loop_section["steps"] = deepcopy(Douglas.DEFAULT_INIT_TEMPLATE["loop"]["steps"])
+
+        config_template["push_policy"] = policy_candidate
+        config_template.setdefault("sprint", {})["length_days"] = sprint_length_value
+        config_template.setdefault("history", {})[
+            "max_log_excerpt_length"
+        ] = self._max_log_excerpt_length
 
         douglas_config_path = target_path / "douglas.yaml"
         douglas_config_path.write_text(
@@ -3226,6 +3860,21 @@ class Douglas:
                         capture_output=True,
                     )
                 except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-                    print(f"Warning: Unable to initialize git repository: {exc}")
+                    logger.warning("Unable to initialize git repository: %s", exc)
 
         print("Project initialized with Douglas scaffolding.")
+
+
+def _friendly_plan_reason(reason: Optional[str]) -> str:
+    if not reason:
+        return "backlog already prepared"
+    normalized = reason.lower()
+    if normalized == "existing_backlog":
+        return "backlog already exists"
+    if normalized == "no_llm":
+        return "no planning model available"
+    if normalized == "llm_error":
+        return "planning model unavailable"
+    if normalized == "fallback":
+        return "generated default backlog"
+    return normalized

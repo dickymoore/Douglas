@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from typing import Optional, Protocol
 
 from douglas.integrations.github import GitHub
+from douglas.logging_utils import get_logger
+
+
+logger = get_logger(__name__)
 
 
 class RepositoryIntegration(Protocol):
@@ -33,9 +37,8 @@ class GitLabIntegration:
     supports_ci_monitoring: bool = False
 
     def create_pull_request(self, title: str, body: str, base: str, head: str) -> str:
-        print(
-            "GitLab integration is currently stubbed. Use the GitLab CLI (glab) or UI "
-            "to open a merge request."
+        logger.warning(
+            "GitLab integration is currently stubbed. Use the GitLab CLI (glab) or UI to open a merge request."
         )
         return "GitLab merge request stub created; manual follow-up required."
 
@@ -46,9 +49,8 @@ class AzureDevOpsIntegration:
     supports_ci_monitoring: bool = False
 
     def create_pull_request(self, title: str, body: str, base: str, head: str) -> str:
-        print(
-            "Azure DevOps integration is currently stubbed. Use the Azure CLI or UI "
-            "to open a pull request."
+        logger.warning(
+            "Azure DevOps integration is currently stubbed. Use the Azure CLI or UI to open a pull request."
         )
         return "Azure DevOps pull request stub created; manual follow-up required."
 
@@ -62,7 +64,7 @@ def resolve_repository_integration(name: Optional[str]) -> RepositoryIntegration
     if normalized in {"azure", "azure-devops", "azure_devops", "azuredevops"}:
         return AzureDevOpsIntegration()
 
-    print(
-        f"Warning: Unknown repository provider '{name}'. Falling back to GitHub integration."
+    logger.warning(
+        "Unknown repository provider '%s'. Falling back to GitHub integration.", name
     )
     return GitHubIntegration()

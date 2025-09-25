@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -176,7 +177,17 @@ def archive_question(question: Question) -> Path:
 
     destination = question.archive_dir / question.path.name
     destination.parent.mkdir(parents=True, exist_ok=True)
-    question.path.replace(destination)
+    try:
+        question.path.replace(destination)
+    except OSError as e_replace:
+        try:
+            shutil.move(question.path, destination)
+        except Exception as e_move:
+            raise RuntimeError(
+                f"Failed to move question file from {question.path} to {destination} "
+                f"using both Path.replace and shutil.move. "
+                f"Original error: {e_replace}; shutil.move error: {e_move}"
+            ) from e_move
 
     sprint_prefix = _resolve_sprint_prefix(question.config)
     _log_question_to_summary(

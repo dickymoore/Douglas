@@ -1,12 +1,10 @@
 import json
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
 
 import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from douglas.pipelines import retro
 

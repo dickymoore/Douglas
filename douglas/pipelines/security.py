@@ -7,6 +7,8 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Iterable, Mapping, Optional, Sequence, Union
 
+from douglas.logging_utils import get_logger
+
 __all__ = [
     "SecurityCheckError",
     "SecurityConfigurationError",
@@ -18,6 +20,9 @@ __all__ = [
 ToolEntry = Union[str, Sequence[str], Mapping[str, object]]
 
 _DEFAULT_SECURITY_TOOLS: tuple[str, ...] = ("bandit", "semgrep")
+
+
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -126,10 +131,9 @@ def run_security(
         )
 
     if skipped_tools:
-        print(
-            "Warning: Skipped security tools that were not installed: "
-            + ", ".join(skipped_tools)
-            + "."
+        logger.warning(
+            "Skipped security tools that were not installed: %s.",
+            ", ".join(skipped_tools),
         )
 
     print(f"Security checks completed: {', '.join(result.name for result in results)}.")

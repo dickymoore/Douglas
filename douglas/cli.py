@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import importlib.resources as resources
 from copy import deepcopy
 from pathlib import Path
-from string import Template
 from typing import Callable, Optional
 
 import typer
-import yaml
 
+from douglas import __version__
+from douglas.logging_utils import configure_logging
 from douglas.core import Douglas, TEMPLATE_ROOT
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
@@ -19,22 +18,42 @@ from douglas.providers.gemini_provider import GeminiProvider
 from douglas.providers.openai_provider import OpenAIProvider
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
+dashboard_app = typer.Typer(help="Serve or render the Douglas dashboard")
+demo_app = typer.Typer(help="Run product demo scripts")
+
+app.add_typer(dashboard_app, name="dashboard")
+app.add_typer(demo_app, name="demo")
 
 
-_DEFAULT_INIT_CONFIG = {
-    "project": {"language": "python"},
-    "ai": {
-        "default_provider": "codex",
-        "providers": {
-            "codex": {
-                "provider": "codex",
-                "model": CodexProvider.DEFAULT_MODEL,
-            }
-        },
-        "prompt": "system_prompt.md",
-    },
-    "history": {"max_log_excerpt_length": Douglas.MAX_LOG_EXCERPT_LENGTH},
-}
+def _version_callback(value: bool) -> None:
+    """Print the Douglas package version when requested."""
+
+    if value:
+        typer.echo(f"Douglas {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        help="Show the Douglas version and exit.",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+    log_level: str = typer.Option(
+        "",
+        "--log-level",
+        help="Set Douglas log level (e.g. info, warning, debug). Overrides DOUGLAS_LOG_LEVEL.",
+    ),
+) -> None:
+    """Global callback to wire shared options like --version."""
+
+    configure_logging(log_level or None)
+
+    return None
 
 
 _PROVIDER_DEFAULT_MODELS = {
@@ -48,72 +67,7 @@ _PROVIDER_DEFAULT_MODELS = {
 
 
 def _load_default_init_config() -> dict:
-    """Load the seed configuration used when bootstrapping a new project."""
-
-    template_candidates = []
-    try:
-        package_template = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
-    except ModuleNotFoundError:
-        package_template = None  # pragma: no cover - defensive guard
-    else:
-        template_candidates.append(package_template)
-
-    template_candidates.append(TEMPLATE_ROOT / "douglas.yaml.tpl")
-
-    template_text = None
-    last_missing_error: Optional[FileNotFoundError] = None
-    for candidate in template_candidates:
-        try:
-            template_text = candidate.read_text(encoding="utf-8")
-        except FileNotFoundError as exc:
-            last_missing_error = exc
-            continue
-        except OSError as exc:
-            typer.secho(
-                f"Unable to read template file '{candidate}': {exc}. Using fallback defaults.",
-                fg=typer.colors.YELLOW,
-            )
-            return deepcopy(_DEFAULT_INIT_CONFIG)
-
-        if template_text is not None:
-            break
-
-    if template_text is None:
-        if last_missing_error is not None:
-            missing_location = last_missing_error.filename or "douglas.yaml.tpl"
-        else:
-            missing_location = "douglas.yaml.tpl"
-        typer.secho(
-            f"Template file '{missing_location}' not found; falling back to the built-in defaults.",
-            fg=typer.colors.YELLOW,
-        )
-        return deepcopy(_DEFAULT_INIT_CONFIG)
-
-    rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
-    config = yaml.safe_load(rendered) or {}
-
-    ai_cfg = config.setdefault("ai", {}) if isinstance(config, dict) else {}
-    if isinstance(ai_cfg, dict):
-        providers_section = ai_cfg.get("providers")
-        if not isinstance(providers_section, dict):
-            provider_name = ai_cfg.pop("provider", None)
-            model_name = ai_cfg.pop("model", None)
-            providers_section = {}
-            ai_cfg["providers"] = providers_section
-            normalized_provider = (provider_name or "codex").strip().lower() or "codex"
-            entry = providers_section.setdefault(
-                normalized_provider,
-                {"provider": normalized_provider},
-            )
-            if model_name and "model" not in entry:
-                entry["model"] = model_name
-        if "default_provider" not in ai_cfg and providers_section:
-            ai_cfg["default_provider"] = next(iter(providers_section))
-
-    history_cfg = config.setdefault("history", {})
-    history_cfg.setdefault("max_log_excerpt_length", Douglas.MAX_LOG_EXCERPT_LENGTH)
-
-    return config
+    return deepcopy(Douglas.load_scaffold_config())
 
 
 def _config_option(help_text: str) -> Optional[Path]:
@@ -322,6 +276,63 @@ def init(
         ai_provider=provider_choice,
         ai_model=model_choice,
     )
+
+
+@dashboard_app.command("serve")
+def dashboard_serve(
+    state_dir: Path = typer.Argument(Path(".")),
+    host: str = typer.Option("127.0.0.1", help="Host interface to bind the dashboard server"),
+    port: int = typer.Option(8050, help="Port to bind the dashboard server"),
+    reload: bool = typer.Option(False, help="Enable auto-reload (development only)"),
+) -> None:
+    """Start the live FastAPI dashboard."""
+
+    from douglas.dashboard import server as dashboard_server
+    from douglas.dashboard.server import create_app
+
+    try:
+        import uvicorn
+    except ImportError as exc:  # pragma: no cover - runtime guard
+        raise typer.BadParameter(
+            "uvicorn is required to serve the dashboard. Install with `pip install uvicorn`."
+        ) from exc
+
+    if getattr(dashboard_server, "FastAPI", None) is None:
+        raise typer.BadParameter(
+            "FastAPI is not available in this environment. Install with `pip install fastapi`."
+        )
+
+    app_instance = create_app(state_dir)
+    typer.echo(f"Serving dashboard from {state_dir} on http://{host}:{port}")
+    uvicorn.run(app_instance, host=host, port=port, reload=reload)
+
+
+@dashboard_app.command("render")
+def dashboard_render(
+    state_dir: Path = typer.Argument(Path(".")),
+    output_dir: Path = typer.Argument(Path(".douglas/dashboard")),
+) -> None:
+    """Render static dashboard HTML to disk."""
+
+    from douglas.dashboard.server import render_static_dashboard
+
+    target = render_static_dashboard(state_dir, output_dir)
+    typer.echo(f"Dashboard rendered to {target}")
+
+
+@demo_app.command("run")
+def demo_run(
+    script: Path = typer.Argument(..., exists=True, readable=True),
+    output: Optional[Path] = typer.Option(None, help="Output directory for the demo report"),
+) -> None:
+    """Execute a Douglas demo script and capture a report."""
+
+    from douglas.demo.runner import DemoRunner
+
+    runner = DemoRunner()
+    report = runner.run(script, output_dir=output)
+    typer.echo(f"Demo completed in {report.finished_at - report.started_at:.2f}s")
+    typer.echo(f"Report directory: {report.artifacts_dir}")
 
 
 def main() -> None:

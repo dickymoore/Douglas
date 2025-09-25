@@ -1,0 +1,2 @@
+[console_scripts]
+douglas = douglas.cli:app
