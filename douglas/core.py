@@ -1201,17 +1201,6 @@ class Douglas:
             return False
         return self._loop_outcomes.get("push") is True
 
-    def _feature_delivery_goal_met(self) -> bool:
-        goal = self._resolve_feature_goal()
-        if goal is None:
-            return False
-        if len(self.sprint_manager.completed_features) < goal:
-            return False
-        outstanding = self.sprint_manager.outstanding_features()
-        if outstanding > 0:
-            return False
-        return self._loop_outcomes.get("push") is True and self._loop_outcomes.get("test") is True
-
     def _execute_step(
         self,
         step_name: str,
