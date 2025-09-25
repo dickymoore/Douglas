@@ -155,7 +155,7 @@ def load_cumulative_flow(base_path: Path) -> dict[str, list[tuple[str, int]]]:
                 continue
             timestamp = str(entry.get("date", ""))
             count = int(entry.get("count", 0))
-            entries.append((timestamp, count))
+            entries.append([timestamp, count])
         flow[status] = entries
     return flow
 
