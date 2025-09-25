@@ -2,7 +2,6 @@ import json
 import stat
 import textwrap
 import subprocess
-import sys
 import types
 from pathlib import Path
 
