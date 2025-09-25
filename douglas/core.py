@@ -584,7 +584,10 @@ class Douglas:
             return 1
 
         if value <= 0:
-            return sys.maxsize
+            logger.warning(
+                "loop iteration limit must be positive; defaulting to 1000 iterations."
+            )
+            return 1000
 
         return value
 
