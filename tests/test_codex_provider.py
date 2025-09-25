@@ -68,6 +68,7 @@ def test_codex_provider_prefers_cli_token(monkeypatch):
 
     fake_subprocess = types.SimpleNamespace(
         run=lambda *args, **kwargs: _DummyResult(stdout="token-from-cli\n"),
+        CalledProcessError=subprocess.CalledProcessError,
         TimeoutExpired=subprocess.TimeoutExpired,
     )
     monkeypatch.setattr(codex_provider, "subprocess", fake_subprocess)
