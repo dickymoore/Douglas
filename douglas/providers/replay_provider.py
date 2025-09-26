@@ -86,6 +86,22 @@ def _serialize_value(value: object) -> object:
 
 @dataclass(frozen=True)
 class CassetteKey:
+    """
+    Represents a unique identifier for a cached LLM (Large Language Model) interaction.
+
+    Each field contributes to uniquely identifying a specific LLM request/response context.
+
+    Attributes:
+        provider: The name of the LLM provider (e.g., "openai", "anthropic").
+        model: The specific model used for the interaction, if applicable.
+        role: The role or label of the agent making the request (e.g., "user", "assistant").
+        step: The step or phase in the workflow where the interaction occurs.
+        agent_id: The unique identifier for the agent involved in the interaction.
+        project_fingerprint: A hash representing the project configuration and layout,
+            used to ensure cache entries are project-specific.
+        prompt_hash: A hash of the normalized prompt text, ensuring uniqueness for different prompts.
+        seed: The random seed used for deterministic generation, if applicable.
+    """
     provider: str
     model: Optional[str]
     role: Optional[str]
