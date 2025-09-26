@@ -44,6 +44,7 @@ Douglas keeps a committed cassette set under `tests/replay-fixture/` so CI/CD pi
    douglas run --ai-mode real --provider codex --model gpt-5-codex \
      --record-cassettes --seed 123 --cassette-dir .douglas/cassettes
    ```
+   The fixture stops after a single iteration because `loop.exit_conditions` includes `tests_pass`.
 3. Replay locally or in CI using the captured JSONL files:
    ```bash
    DOUGLAS_OFFLINE=1 douglas run --ai-mode replay \
