@@ -116,7 +116,9 @@ def load_burndown(base_path: Path) -> list[BurndownPoint]:
                 continue
             remaining = int(entry.get("remaining", entry.get("todo", 0)))
             completed = int(entry.get("completed", entry.get("done", 0)))
-            points.append(BurndownPoint(date=date, remaining=remaining, completed=completed))
+            points.append(
+                BurndownPoint(date=date, remaining=remaining, completed=completed)
+            )
     return points
 
 

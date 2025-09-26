@@ -68,7 +68,9 @@ def run_standup(context: StandupContext) -> StandupResult:
 
 def _load_backlog(path: Path) -> Dict[str, Any]:
     if not path.exists():
-        logger.info("Backlog file %s not found; standup will reference empty backlog.", path)
+        logger.info(
+            "Backlog file %s not found; standup will reference empty backlog.", path
+        )
         return {}
 
     try:
@@ -97,7 +99,9 @@ def _extract_stories(backlog: Dict[str, Any]) -> List[Dict[str, Any]]:
             if not isinstance(feature, dict):
                 continue
             feature_name = feature.get("name") or feature.get("id")
-            tasks = feature.get("tasks") if isinstance(feature.get("tasks"), list) else []
+            tasks = (
+                feature.get("tasks") if isinstance(feature.get("tasks"), list) else []
+            )
             derived.append(
                 {
                     "id": feature.get("id", feature_name),
@@ -150,7 +154,13 @@ def _load_open_questions(questions_dir: Path) -> List[Dict[str, Any]]:
     return blockers[:10]
 
 
-def _render_standup(*, sprint_index: int, sprint_day: int, stories: List[Dict[str, Any]], blockers: List[Dict[str, Any]]) -> str:
+def _render_standup(
+    *,
+    sprint_index: int,
+    sprint_day: int,
+    stories: List[Dict[str, Any]],
+    blockers: List[Dict[str, Any]],
+) -> str:
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     story_lines = []
@@ -175,11 +185,16 @@ def _render_standup(*, sprint_index: int, sprint_day: int, stories: List[Dict[st
         if context:
             blocker_lines.append(textwrap.indent(context.strip(), "  "))
 
-    story_section = "\n".join(story_lines) if story_lines else "- No stories selected yet."
-    blocker_section = "\n".join(blocker_lines) if blocker_lines else "- No blockers reported."
+    story_section = (
+        "\n".join(story_lines) if story_lines else "- No stories selected yet."
+    )
+    blocker_section = (
+        "\n".join(blocker_lines) if blocker_lines else "- No blockers reported."
+    )
 
-    return textwrap.dedent(
-        f"""# Sprint {sprint_index} – Day {sprint_day} Standup
+    return (
+        textwrap.dedent(
+            f"""# Sprint {sprint_index} – Day {sprint_day} Standup
 
         Generated: {date_str}
 
@@ -189,4 +204,6 @@ def _render_standup(*, sprint_index: int, sprint_day: int, stories: List[Dict[st
         ## Blockers / Questions
         {blocker_section}
         """
-    ).strip() + "\n"
+        ).strip()
+        + "\n"
+    )

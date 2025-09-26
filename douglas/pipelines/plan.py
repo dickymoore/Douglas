@@ -63,7 +63,9 @@ def run_plan(context: PlanContext) -> PlanResult:
 
     llm = context.llm
     if llm is None:
-        logger.warning("No LLM provider available for planning; skipping backlog generation.")
+        logger.warning(
+            "No LLM provider available for planning; skipping backlog generation."
+        )
         return PlanResult(False, backlog_path, None, "", reason="no_llm")
 
     system_prompt_text = _read_file(context.system_prompt_path)
@@ -224,10 +226,10 @@ def _build_prompt(
         Delivery framework: {cadence}.
 
         Project context:
-        {project_description or 'No explicit project description supplied.'}
+        {project_description or "No explicit project description supplied."}
 
         Core mission statement:
-        {system_prompt or 'No additional mission statement supplied.'}
+        {system_prompt or "No additional mission statement supplied."}
 
         {goal_statement}
 
@@ -255,7 +257,9 @@ def _parse_backlog(raw_text: str) -> Optional[Dict[str, Any]]:
     return data
 
 
-def _merge_backlog(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_backlog(
+    existing: Dict[str, Any], incoming: Dict[str, Any]
+) -> Dict[str, Any]:
     result = dict(existing)
 
     for key in ("epics", "features", "stories", "tasks", "roadmap", "dependencies"):
@@ -361,7 +365,12 @@ def _parse_charter_documents(raw_text: str) -> Dict[str, str]:
     if not isinstance(data, dict):
         return {}
     docs: Dict[str, str] = {}
-    for key in ("agents_md", "agent_charter_md", "coding_guidelines_md", "working_agreements_md"):
+    for key in (
+        "agents_md",
+        "agent_charter_md",
+        "coding_guidelines_md",
+        "working_agreements_md",
+    ):
         value = data.get(key)
         if isinstance(value, str) and value.strip():
             docs[key] = value
@@ -471,7 +480,9 @@ def _ensure_structured_backlog(
     epics = backlog_data.get("epics")
     features = backlog_data.get("features")
 
-    has_epics = isinstance(epics, list) and any(isinstance(item, dict) for item in epics)
+    has_epics = isinstance(epics, list) and any(
+        isinstance(item, dict) for item in epics
+    )
     has_features = isinstance(features, list) and any(
         isinstance(item, dict) for item in features
     )

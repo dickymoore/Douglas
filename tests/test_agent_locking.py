@@ -7,7 +7,9 @@ from douglas.agents.locks import FileLockAcquisitionError, FileLockManager
 
 
 def test_lock_manager_blocks_until_release(tmp_path):
-    manager = FileLockManager(tmp_path / "locks", default_timeout=2.0, poll_interval=0.05)
+    manager = FileLockManager(
+        tmp_path / "locks", default_timeout=2.0, poll_interval=0.05
+    )
     target = tmp_path / "shared.txt"
     target.write_text("data", encoding="utf-8")
     order: list[str] = []
@@ -29,7 +31,9 @@ def test_lock_manager_blocks_until_release(tmp_path):
 
 
 def test_lock_manager_times_out(tmp_path):
-    manager = FileLockManager(tmp_path / "locks", default_timeout=0.2, poll_interval=0.05)
+    manager = FileLockManager(
+        tmp_path / "locks", default_timeout=0.2, poll_interval=0.05
+    )
     target = tmp_path / "shared.txt"
     target.write_text("data", encoding="utf-8")
 

@@ -45,7 +45,9 @@ class ParallelAgentExecutor:
 
     def _workspace_for(self, agent_id: str) -> AgentWorkspace:
         if agent_id not in self._workspaces:
-            workspace = AgentWorkspace(agent_id, self.workspace_root / agent_id, self.lock_manager)
+            workspace = AgentWorkspace(
+                agent_id, self.workspace_root / agent_id, self.lock_manager
+            )
             self._workspaces[agent_id] = workspace
         return self._workspaces[agent_id]
 

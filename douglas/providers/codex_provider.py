@@ -63,7 +63,9 @@ class CodexProvider(OpenAIProvider):
         self._cli_token = cli_token
         self._cli_timeout_seconds = int(os.getenv("CODEX_CLI_TIMEOUT", "120"))
         self._cli_heartbeat_seconds = int(os.getenv("CODEX_CLI_HEARTBEAT", "10"))
-        self._workspace_root = Path(os.getenv("DOUGLAS_WORKSPACE_ROOT", ".douglas/workspaces"))
+        self._workspace_root = Path(
+            os.getenv("DOUGLAS_WORKSPACE_ROOT", ".douglas/workspaces")
+        )
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         self._lock_manager = FileLockManager(self._workspace_root.parent / "locks")
         self._workspaces: dict[str, AgentWorkspace] = {}
@@ -96,7 +98,9 @@ class CodexProvider(OpenAIProvider):
 
         agent_id = os.getenv("DOUGLAS_AGENT_ID", uuid.uuid4().hex)
         workspace = self._workspace_for(agent_id)
-        last_message_path = workspace.artifacts_dir / f"last_message_{uuid.uuid4().hex}.txt"
+        last_message_path = (
+            workspace.artifacts_dir / f"last_message_{uuid.uuid4().hex}.txt"
+        )
 
         auth_file = None
         for candidate in self._candidate_auth_paths():
@@ -398,6 +402,8 @@ class CodexProvider(OpenAIProvider):
         return all(character in cls._TOKEN_CHARACTERS for character in value)
 
     def _fallback(self, prompt: str) -> str:  # pragma: no cover - log output only
-        logger.warning("Codex provider fallback triggered; returning placeholder output.")
+        logger.warning(
+            "Codex provider fallback triggered; returning placeholder output."
+        )
         logger.debug("Codex fallback prompt preview", extra={"prompt": prompt[:200]})
         return "# Codex API unavailable; no code generated."

@@ -44,7 +44,9 @@ class AgentWorkspace:
         (self.root / "artifacts").mkdir(exist_ok=True)
         self.metadata_path = self.root / "metadata.json"
         if not self.metadata_path.exists():
-            self.metadata_path.write_text(json.dumps({"agent_id": self.agent_id}, indent=2))
+            self.metadata_path.write_text(
+                json.dumps({"agent_id": self.agent_id}, indent=2)
+            )
 
     @property
     def changes_dir(self) -> Path:
@@ -99,7 +101,9 @@ class AgentWorkspace:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content)
 
-    def copy_into_changes(self, source: Path, relative_dest: Path | str | None = None) -> None:
+    def copy_into_changes(
+        self, source: Path, relative_dest: Path | str | None = None
+    ) -> None:
         destination = self.changes_dir / (relative_dest or source.name)
         destination.parent.mkdir(parents=True, exist_ok=True)
         if source.is_dir():

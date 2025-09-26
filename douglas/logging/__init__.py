@@ -131,7 +131,9 @@ def configure_logging(
         else:
             target_file = _create_log_directory() / "douglas.log"
 
-        if _FILE_HANDLER and getattr(_FILE_HANDLER, "baseFilename", None) == str(target_file):
+        if _FILE_HANDLER and getattr(_FILE_HANDLER, "baseFilename", None) == str(
+            target_file
+        ):
             return
 
         if _FILE_HANDLER is not None:
@@ -161,11 +163,15 @@ def configure_logging(
         _FILE_HANDLER = rotation_handler
 
 
-def get_logger(name: str, *, metadata: Optional[Mapping[str, Any]] = None) -> logging.Logger:
+def get_logger(
+    name: str, *, metadata: Optional[Mapping[str, Any]] = None
+) -> logging.Logger:
     """Return a logger scoped under the Douglas namespace."""
 
     configure_logging()
-    qualified = name if name.startswith(f"{_LOGGER_NAME}.") else f"{_LOGGER_NAME}.{name}"
+    qualified = (
+        name if name.startswith(f"{_LOGGER_NAME}.") else f"{_LOGGER_NAME}.{name}"
+    )
     logger = logging.getLogger(qualified)
     if metadata:
         return DouglasLoggerAdapter(logger, dict(metadata))
@@ -175,7 +181,9 @@ def get_logger(name: str, *, metadata: Optional[Mapping[str, Any]] = None) -> lo
 class DouglasLoggerAdapter(logging.LoggerAdapter):
     """Logger adapter that injects metadata for structured logging."""
 
-    def process(self, msg: str, kwargs: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
+    def process(
+        self, msg: str, kwargs: Mapping[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
         extra = dict(kwargs.get("extra", {}))
         metadata = dict(self.extra)
         if "metadata" in kwargs:
@@ -189,7 +197,9 @@ class DouglasLoggerAdapter(logging.LoggerAdapter):
 class log_exceptions(ContextDecorator):
     """Context manager/decorator that logs uncaught exceptions."""
 
-    def __init__(self, logger: logging.Logger, *, message: str = "Unhandled error") -> None:
+    def __init__(
+        self, logger: logging.Logger, *, message: str = "Unhandled error"
+    ) -> None:
         self.logger = logger
         self.message = message
 
@@ -223,7 +233,9 @@ def log_action(
     """Decorator that emits structured entry/exit logs around a callable."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        func_logger = logger_factory() if logger_factory else get_logger(func.__module__)
+        func_logger = (
+            logger_factory() if logger_factory else get_logger(func.__module__)
+        )
 
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             start_time = time.perf_counter()
@@ -249,7 +261,13 @@ def log_action(
                 success_level,
                 "%s:success",
                 action,
-                extra={"metadata": {"action": action, "event": "success", "duration": duration}},
+                extra={
+                    "metadata": {
+                        "action": action,
+                        "event": "success",
+                        "duration": duration,
+                    }
+                },
             )
             return result
 

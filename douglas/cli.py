@@ -281,7 +281,9 @@ def init(
 @dashboard_app.command("serve")
 def dashboard_serve(
     state_dir: Path = typer.Argument(Path(".")),
-    host: str = typer.Option("127.0.0.1", help="Host interface to bind the dashboard server"),
+    host: str = typer.Option(
+        "127.0.0.1", help="Host interface to bind the dashboard server"
+    ),
     port: int = typer.Option(8050, help="Port to bind the dashboard server"),
     reload: bool = typer.Option(False, help="Enable auto-reload (development only)"),
 ) -> None:
@@ -323,7 +325,9 @@ def dashboard_render(
 @demo_app.command("run")
 def demo_run(
     script: Path = typer.Argument(..., exists=True, readable=True),
-    output: Optional[Path] = typer.Option(None, help="Output directory for the demo report"),
+    output: Optional[Path] = typer.Option(
+        None, help="Output directory for the demo report"
+    ),
 ) -> None:
     """Execute a Douglas demo script and capture a report."""
 

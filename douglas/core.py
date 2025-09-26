@@ -12,7 +12,18 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from string import Template
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+)
 
 import yaml
 
@@ -359,9 +370,9 @@ class Douglas:
         self._ci_monitoring_deferred: bool = False
         self._configured_steps: set[str] = set()
         self._executed_step_names: set[str] = set()
-        self._blocking_questions_by_role: Dict[str, List[question_journal.Question]] = (
-            {}
-        )
+        self._blocking_questions_by_role: Dict[
+            str, List[question_journal.Question]
+        ] = {}
         self._run_state_path = self._resolve_run_state_path()
         self._soft_stop_pending = False
         accountability_cfg = self.config.get("accountability", {}) or {}
@@ -378,7 +389,9 @@ class Douglas:
     def load_scaffold_config() -> Dict[str, Any]:
         template_candidates: List[Path] = []
         try:
-            package_template = resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+            package_template = (
+                resources.files("douglas") / "templates" / "douglas.yaml.tpl"
+            )
         except ModuleNotFoundError:
             package_template = None
         else:
@@ -413,7 +426,9 @@ class Douglas:
             )
             return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
 
-        rendered = Template(template_text).safe_substitute(PROJECT_NAME="DouglasProject")
+        rendered = Template(template_text).safe_substitute(
+            PROJECT_NAME="DouglasProject"
+        )
         data = yaml.safe_load(rendered) or {}
         if not isinstance(data, dict):
             return deepcopy(Douglas.DEFAULT_INIT_TEMPLATE)
@@ -645,7 +660,9 @@ class Douglas:
                     print("Exit condition satisfied; ending loop early.")
                     break
 
-                baseline_completed_features = len(self.sprint_manager.completed_features)
+                baseline_completed_features = len(
+                    self.sprint_manager.completed_features
+                )
                 iteration_index += 1
                 self._refresh_question_state()
 
@@ -1052,9 +1069,11 @@ class Douglas:
         if not exit_conditions:
             return False
 
+        executed_lookup = {str(step).strip().lower() for step in executed_steps}
+
         results: List[bool] = []
         for condition in exit_conditions:
-            satisfied = self._evaluate_exit_condition(condition, executed_steps)
+            satisfied = self._evaluate_exit_condition(condition, executed_lookup)
             results.append(satisfied)
 
         if mode == "all":
@@ -1063,10 +1082,9 @@ class Douglas:
         return any(results)
 
     def _evaluate_exit_condition(
-        self, condition: str, executed_steps: List[str]
+        self, condition: str, executed_lookup: Set[str]
     ) -> bool:
         normalized = condition.strip().lower()
-        executed_lookup = {str(step).strip().lower() for step in executed_steps}
 
         if normalized == "sprint_demo_complete":
             return self.sprint_manager.has_step_run("demo")
@@ -1195,9 +1213,7 @@ class Douglas:
 
     def _raise_accountability_alert(self) -> None:
         sprint_index = self.sprint_manager.sprint_index
-        summary = (
-            "Detected repeated iterations without meaningful progress. Raising soft stop."
-        )
+        summary = "Detected repeated iterations without meaningful progress. Raising soft stop."
         details = {
             "status": "alert",
             "stall_iterations": self._accountability_stall_threshold,
@@ -1234,14 +1250,18 @@ class Douglas:
         if step_name == "generate":
             print("Running generate step...")
             changes_applied = bool(self.generate())
-            return StepExecutionResult(True, changes_applied, override_event, already_recorded)
+            return StepExecutionResult(
+                True, changes_applied, override_event, already_recorded
+            )
 
         if step_name == "standup":
             print("Running standup step...")
             planning_config = self.config.get("planning") or {}
             backlog_relative = planning_config.get(
                 "backlog_file",
-                self.config.get("retro", {}).get("backlog_file", "ai-inbox/backlog/pre-features.yaml"),
+                self.config.get("retro", {}).get(
+                    "backlog_file", "ai-inbox/backlog/pre-features.yaml"
+                ),
             )
             backlog_path = self.project_root / backlog_relative
             questions_dir = self.project_root / self.config.get("paths", {}).get(
@@ -1268,7 +1288,9 @@ class Douglas:
             standup_result = standuppipe.run_standup(standup_context)
             summary_details = {
                 "status": "recorded" if standup_result.wrote_report else "skipped",
-                "output": str(standup_result.output_path.relative_to(self.project_root)),
+                "output": str(
+                    standup_result.output_path.relative_to(self.project_root)
+                ),
                 "stories": standup_result.story_count,
                 "blockers": standup_result.blocker_count,
             }
@@ -1305,8 +1327,13 @@ class Douglas:
                 self._loop_outcomes["plan"] = {"status": "skipped"}
                 return StepExecutionResult(False, False, None, already_recorded)
 
-            if planning_config.get("first_day_only", False) and self.sprint_manager.current_day > 1:
-                print("Skipping plan step: planning restricted to the first day of each sprint.")
+            if (
+                planning_config.get("first_day_only", False)
+                and self.sprint_manager.current_day > 1
+            ):
+                print(
+                    "Skipping plan step: planning restricted to the first day of each sprint."
+                )
                 self._record_agent_summary(
                     "ProductOwner",
                     "plan",
@@ -1334,17 +1361,25 @@ class Douglas:
 
             backlog_relative = planning_config.get(
                 "backlog_file",
-                self.config.get("retro", {}).get("backlog_file", "ai-inbox/backlog/pre-features.yaml"),
+                self.config.get("retro", {}).get(
+                    "backlog_file", "ai-inbox/backlog/pre-features.yaml"
+                ),
             )
             backlog_path = self.project_root / backlog_relative
-            system_prompt_name = self.config.get("ai", {}).get("prompt", "system_prompt.md")
+            system_prompt_name = self.config.get("ai", {}).get(
+                "prompt", "system_prompt.md"
+            )
             system_prompt_path = self.project_root / system_prompt_name
 
             llm = self._resolve_llm_provider("ProductOwner", "plan")
 
             plan_context = planpipe.PlanContext(
-                project_name=self.config.get("project", {}).get("name", "Unknown Project"),
-                project_description=self.config.get("project", {}).get("description", ""),
+                project_name=self.config.get("project", {}).get(
+                    "name", "Unknown Project"
+                ),
+                project_description=self.config.get("project", {}).get(
+                    "description", ""
+                ),
                 project_root=self.project_root,
                 backlog_path=backlog_path,
                 system_prompt_path=system_prompt_path,
@@ -1352,9 +1387,7 @@ class Douglas:
                 sprint_day=self.sprint_manager.current_day,
                 planning_config=planning_config,
                 llm=llm,
-                agent_roles=list(
-                    self.config.get("agents", {}).get("roles", []) or []
-                ),
+                agent_roles=list(self.config.get("agents", {}).get("roles", []) or []),
             )
 
             plan_result = planpipe.run_plan(plan_context)
@@ -1409,12 +1442,38 @@ class Douglas:
             print(message)
             self._loop_outcomes["plan"] = summary_details
             reason_key = (plan_result.reason or "").strip().lower()
-            # Explicit set of skip reasons; add more as needed
-            skip_reasons = {"", "no_llm", "existing_backlog", "skipped", "skipped_due_to_error"}
-            is_skip = (
-                not plan_result.created_backlog
-                and reason_key in skip_reasons
+            plan_config_raw = (
+                self.config.get("plan") if hasattr(self.config, "get") else {}
             )
+            plan_config = plan_config_raw or {}
+            if not isinstance(plan_config, Mapping):
+                plan_config = {}
+
+            configured_prefixes = plan_config.get("skip_reason_prefixes")
+            if isinstance(configured_prefixes, str):
+                configured_prefixes = [configured_prefixes]
+            if isinstance(configured_prefixes, (list, tuple, set)):
+                skip_reason_prefixes = tuple(
+                    str(prefix).strip().lower()
+                    for prefix in configured_prefixes
+                    if prefix is not None and str(prefix).strip()
+                )
+            else:
+                skip_reason_prefixes = ()
+            if not skip_reason_prefixes:
+                skip_reason_prefixes = ("no_llm", "existing_backlog", "skipped")
+
+            empty_reason_setting = plan_config.get("empty_reason_is_skip", True)
+            empty_reason_is_skip = bool(empty_reason_setting)
+
+            is_skip = False
+            if not plan_result.created_backlog:
+                if not reason_key and empty_reason_is_skip:
+                    is_skip = True
+                else:
+                    is_skip = any(
+                        reason_key.startswith(prefix) for prefix in skip_reason_prefixes
+                    )
             executed = plan_result.created_backlog or not is_skip
             success = plan_result.created_backlog or is_skip
             failure_details = None if success else message
@@ -1733,7 +1792,9 @@ class Douglas:
                     "No staged changes available for committing.",
                     {"status": "skipped"},
                 )
-            return StepExecutionResult(True, committed, override_event, already_recorded)
+            return StepExecutionResult(
+                True, committed, override_event, already_recorded
+            )
 
         if step_name == "push":
             print("Running push step...")
@@ -2544,7 +2605,9 @@ class Douglas:
             )
             return False
 
-        logger.info("CI run not found or did not complete within the monitoring window.")
+        logger.info(
+            "CI run not found or did not complete within the monitoring window."
+        )
         self._ci_status = None
         self._record_agent_summary(
             "DevOps",
@@ -2731,7 +2794,12 @@ class Douglas:
             )
             self._write_history_event(
                 "llm_no_output",
-                {"step": "generate", "provider": provider.__class__.__name__, "reason": "exception", "error": str(exc)},
+                {
+                    "step": "generate",
+                    "provider": provider.__class__.__name__,
+                    "reason": "exception",
+                    "error": str(exc),
+                },
             )
             return False
 
@@ -2745,7 +2813,11 @@ class Douglas:
             )
             self._write_history_event(
                 "llm_no_output",
-                {"step": "generate", "provider": provider.__class__.__name__, "reason": "empty_response"},
+                {
+                    "step": "generate",
+                    "provider": provider.__class__.__name__,
+                    "reason": "empty_response",
+                },
             )
             return False
 
@@ -2765,7 +2837,11 @@ class Douglas:
             if llm_output.strip().startswith("# Codex API unavailable"):
                 self._write_history_event(
                     "llm_no_output",
-                    {"step": "generate", "provider": provider.__class__.__name__, "reason": "provider_fallback"},
+                    {
+                        "step": "generate",
+                        "provider": provider.__class__.__name__,
+                        "reason": "provider_fallback",
+                    },
                 )
 
         self._record_agent_summary("Developer", "generate", summary, details)
@@ -3680,7 +3756,9 @@ class Douglas:
 
         license_choice = (license_type or "none").strip().lower()
         if license_choice not in {"none", "mit"}:
-            logger.warning("Unsupported license '%s'; defaulting to none.", license_type)
+            logger.warning(
+                "Unsupported license '%s'; defaulting to none.", license_type
+            )
             license_choice = "none"
 
         configured_language = (
@@ -3762,13 +3840,15 @@ class Douglas:
         )
         loop_section.setdefault("exhaustive", False)
         if not loop_section.get("steps"):
-            loop_section["steps"] = deepcopy(Douglas.DEFAULT_INIT_TEMPLATE["loop"]["steps"])
+            loop_section["steps"] = deepcopy(
+                Douglas.DEFAULT_INIT_TEMPLATE["loop"]["steps"]
+            )
 
         config_template["push_policy"] = policy_candidate
         config_template.setdefault("sprint", {})["length_days"] = sprint_length_value
-        config_template.setdefault("history", {})[
-            "max_log_excerpt_length"
-        ] = self._max_log_excerpt_length
+        config_template.setdefault("history", {})["max_log_excerpt_length"] = (
+            self._max_log_excerpt_length
+        )
 
         douglas_config_path = target_path / "douglas.yaml"
         douglas_config_path.write_text(

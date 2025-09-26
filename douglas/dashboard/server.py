@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover - fallback branch
             self.status_code = status_code
             self.detail = detail
 
+
 from douglas.dashboard.data import DashboardData, load_dashboard_data
 from douglas.logging import get_logger
 
