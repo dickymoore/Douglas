@@ -268,12 +268,14 @@ class LLMProviderRegistry:
     ) -> str:
         canonical = self._normalize(key) or f"provider_{len(self._providers)}"
         self._providers[canonical] = provider
-        label = provider_name or canonical
+        existing_label = getattr(provider, "douglas_provider_id", None)
+        if existing_label:
+            label = str(existing_label)
+        else:
+            label = provider_name or canonical
         self._provider_labels[canonical] = label
-        if hasattr(provider, "douglas_provider_id"):
-            label = getattr(provider, "douglas_provider_id")
-            self._provider_labels[canonical] = label
-        setattr(provider, "douglas_provider_id", label)
+        if existing_label != label:
+            setattr(provider, "douglas_provider_id", label)
         if model_name is None:
             model_attr = getattr(provider, "model", None)
             if isinstance(model_attr, str):

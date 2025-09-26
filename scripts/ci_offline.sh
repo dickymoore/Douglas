@@ -12,5 +12,10 @@ mypy
 
 pytest -q -k "offline or replay or mock or null" --maxfail=1
 
-douglas run --ai-mode mock --seed 123 || true
-douglas dashboard render . ./.douglas/dashboard-static || true
+if ! douglas run --ai-mode mock --seed 123; then
+    echo "Warning: 'douglas run --ai-mode mock --seed 123' failed, but continuing." >&2
+fi
+
+if ! douglas dashboard render . ./.douglas/dashboard-static; then
+    echo "Warning: 'douglas dashboard render' failed, but continuing." >&2
+fi

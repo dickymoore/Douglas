@@ -6,10 +6,10 @@ import hashlib
 import json
 import platform
 import sys
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-import warnings
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
 from douglas import __version__
@@ -121,6 +121,18 @@ class CassetteKey:
         return data
 
 
+def _cassette_sort_key(path: Path) -> Tuple[str, int, str]:
+    stem = path.stem
+    parts = stem.split("-")
+    suffix = 0
+    if len(parts) > 2 and parts[-1].isdigit():
+        suffix = int(parts[-1])
+        prefix = "-".join(parts[:-1])
+    else:
+        prefix = stem
+    return (prefix, suffix, path.name)
+
+
 class CassetteStore:
     def __init__(self, directory: Path) -> None:
         self.directory = Path(directory)
@@ -134,7 +146,9 @@ class CassetteStore:
         if not self.directory.exists():
             self._loaded = True
             return
-        for path in sorted(self.directory.glob("*.jsonl")):
+        for path in sorted(
+            self.directory.glob("*.jsonl"), key=_cassette_sort_key
+        ):
             try:
                 with path.open("r", encoding="utf-8") as handle:
                     for line in handle:

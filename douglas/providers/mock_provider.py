@@ -8,7 +8,7 @@ import random
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from douglas.providers.llm_provider import LLMProvider
 
@@ -221,7 +221,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             def describe_mock_feature(multiplier: int = 1) -> str:
                 """Return a reproducible identifier for smoke testing."""
 
-                base = "mock-{slug}"
+                base = f"mock-{slug}"
                 return f"{{base}}-{{multiplier}}"
             '''
         ).strip("\n")
@@ -311,7 +311,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
                         def describe_mock_feature(multiplier: int = 1) -> str:
                             """Return a reproducible identifier."""
 
-                            base = "mock-{slug}"
+                            base = f"mock-{slug}"
                             return f"{{base}}-{{multiplier}}"
                         '''
                     ).strip("\n")
@@ -465,7 +465,9 @@ class DeterministicMockProvider(LLMProvider):
     def __init__(self, project_root: Path, seed: int = 0) -> None:
         self.project_root = Path(project_root)
         self.seed = int(seed)
-        self._contexts: Dict[tuple[str, str], _ContextualDeterministicMockProvider] = {}
+        self._contexts: Dict[
+            Tuple[str, str], _ContextualDeterministicMockProvider
+        ] = {}
 
     def with_context(self, agent_label: str, step_name: str) -> LLMProvider:
         key = (agent_label or "agent", step_name or "step")

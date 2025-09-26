@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 from douglas.providers.llm_provider import LLMProvider
 
@@ -45,7 +45,7 @@ class NullProvider(LLMProvider):
 
     def __init__(self, project_root: Path) -> None:
         self._project_root = Path(project_root)
-        self._contexts: Dict[tuple[str, str], _NullProviderContextual] = {}
+        self._contexts: Dict[Tuple[str, str], _NullProviderContextual] = {}
 
     def with_context(self, agent_label: str, step_name: str) -> LLMProvider:
         key = (agent_label or "agent", step_name or "step")
