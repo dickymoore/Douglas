@@ -9,3 +9,4 @@ ai:
   prompt: "system_prompt.md"
 loop:
   steps: ["test"]
+  exit_conditions: ["tests_pass"]
