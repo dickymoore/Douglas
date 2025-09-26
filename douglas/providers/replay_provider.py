@@ -162,6 +162,9 @@ class CassetteStore:
         if not self.directory.exists():
             self._loaded = True
             return
+        # Sort cassette files in reverse order so that newer recordings (with higher numeric suffixes)
+        # are processed first. This ensures that newer recordings take precedence over older ones
+        # when populating the index.
         for path in sorted(
             self.directory.glob("*.jsonl"), key=_cassette_sort_key, reverse=True
         ):
