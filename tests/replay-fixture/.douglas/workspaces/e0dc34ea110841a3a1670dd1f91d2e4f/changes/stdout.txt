@@ -1,0 +1,97 @@
+[2025-09-26T16:31:46] OpenAI Codex v0.40.0 (research preview)
+--------
+workdir: /home/mq/Douglas/tests/replay-fixture
+model: gpt-5-codex
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: none
+reasoning summaries: auto
+--------
+[2025-09-26T16:31:46] User instructions:
+SYSTEM PROMPT:
+You are Douglas working on the replay fixture project. Keep outputs deterministic and concise so cassette replays stay stable across runs.
+
+PROJECT CONTEXT:
+Project: replay-fixture
+Primary language: python
+
+TASK:
+Generate a concise Conventional Commits style subject line for the staged changes. Respond with a single line formatted as '<type>: <description>' without additional commentary or trailing punctuation.
+
+GIT STATUS:
+M  ../../docs/RECORDING.md
+A  ../../scripts/record_replay_fixture.sh
+M  .douglas/cassettes/cassette-20250926.jsonl
+M  README.md
+M  douglas.yaml
+
+STAGED DIFF:
+diff --git a/docs/RECORDING.md b/docs/RECORDING.md
+index 7634a43..1ec4f7e 100644
+--- a/docs/RECORDING.md
++++ b/docs/RECORDING.md
+@@ -34,23 +34,18 @@ The seed, agent label, step name, provider name, and prompt hash must match the
+ 
+ Douglas keeps a committed cassette set under `tests/replay-fixture/` so CI/CD pipelines can validate replay mode without touching the main project workspace. When you need to refresh those cassettes:
+ 
+-1. Change into the fixture directory so relative paths resolve correctly:
++1. Run the helper script, which activates the fixture, records five iterations (`loop.max_iterations: 5`), and prunes transient workspace artifacts on exit:
+    ```bash
+-   cd tests/replay-fixture
++   ./scripts/record_replay_fixture.sh
+    ```
+-2. Allow live provider calls and record a fresh run with the Codex provider:
+-   ```bash
+-   unset DOUGLAS_OFFLINE
+-   douglas run --ai-mode real --provider codex --model gpt-5-codex \
+-     --record-cassettes --seed 123 --cassette-dir .douglas/cassettes
+-   ```
+-   The fixture stops after a single iteration because `loop.exit_conditions` includes `tests_pass`.
+-3. Replay locally or in CI using the captured JSONL files:
++   (Pass additional `douglas run` flags after the script name if you need to override defaults.)
++2. Replay locally or in CI from the fixture directory:
+    ```bash
++   cd tests/replay-fixture
+    DOUGLAS_OFFLINE=1 douglas run --ai-mode replay \
+      --cassette-dir .douglas/cassettes --seed 123
+    ```
+-4. Commit any updated files under `tests/replay-fixture/.douglas/cassettes/` alongside related changes.
++3. Commit any updated files under `tests/replay-fixture/.douglas/cassettes/` alongside related changes.
+ 
+ ## Refreshing cassettes
+ 
+diff --git a/scripts/record_replay_fixture.sh b/scripts/record_replay_fixture.sh
+new file mode 100755
+index 0000000..9b9ecb2
+--- /dev/null
++++ b/scripts/record_replay_fixture.sh
+@@ -0,0 +1,16 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
++FIXTURE_DIR="$ROOT_DIR/tests/replay-fixture"
++
++pushd "$FIXTURE_DIR" > /dev/null
++trap 'rm -rf .douglas/workspaces' EXIT
++
++rm -rf .douglas/workspaces
++
++unset DOUGLAS_OFFLINE || true
++
++douglas run --ai-mode real --record-cassettes --seed 123 --cassette-dir .douglas/cassettes "$@"
++
++popd > /dev/null
+diff --git a/tests/replay-fixture/.douglas/cassettes/cassette-20250926.jsonl b/tests/replay-fixture/.douglas/cassettes/cassette-20250926.jsonl
+index 52d37b4..4d7dc1a 100644
+--- a/tests/replay-fixture/.douglas/cassettes/cassette-20250926.jsonl
++++ b/tests/replay-fixture/.douglas/cassettes/cassette-20250926.jsonl
+@@ -3,3 +3,4 @@
+... (diff truncated)
+[2025-09-26T16:31:50] stream error: exceeded retry limit, last status: 401 Unauthorized; retrying 1/5 in 181ms…
+[2025-09-26T16:31:55] stream error: exceeded retry limit, last status: 401 Unauthorized; retrying 2/5 in 423ms…
+[2025-09-26T16:31:59] stream error: exceeded retry limit, last status: 401 Unauthorized; retrying 3/5 in 799ms…
+[2025-09-26T16:32:04] stream error: exceeded retry limit, last status: 401 Unauthorized; retrying 4/5 in 1.581s…
+[2025-09-26T16:32:10] stream error: exceeded retry limit, last status: 401 Unauthorized; retrying 5/5 in 3.268s…
+[2025-09-26T16:32:17] ERROR: exceeded retry limit, last status: 401 Unauthorized
