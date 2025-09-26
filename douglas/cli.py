@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import typer
+import yaml
 
 from douglas import __version__
 from douglas.logging_utils import configure_logging
@@ -16,6 +17,9 @@ from douglas.providers.codex_provider import CodexProvider
 from douglas.providers.copilot_provider import CopilotProvider
 from douglas.providers.gemini_provider import GeminiProvider
 from douglas.providers.openai_provider import OpenAIProvider
+from douglas.net.offline_guard import ensure_offline_guard
+
+ensure_offline_guard()
 
 app = typer.Typer(help="AI-assisted development loop orchestrator")
 dashboard_app = typer.Typer(help="Serve or render the Douglas dashboard")
@@ -138,12 +142,32 @@ def _determine_orchestrator_config(
     )
 
 
+def _merge_overrides(base: dict, overrides: Optional[dict]) -> dict:
+    if not overrides:
+        return base
+
+    def merge(target: dict, updates: dict) -> None:
+        for key, value in updates.items():
+            if (
+                isinstance(value, dict)
+                and isinstance(target.get(key), dict)
+            ):
+                merge(target[key], value)
+            else:
+                target[key] = value
+
+    merged = deepcopy(base)
+    merge(merged, overrides)
+    return merged
+
+
 def _create_orchestrator(
     config_path: Optional[Path],
     *,
     default_config: Optional[dict] = None,
     default_config_factory: Optional[Callable[[], dict]] = None,
     allow_missing_config: bool = False,
+    overrides: Optional[dict] = None,
 ) -> Douglas:
     """Instantiate the Douglas orchestrator using optional config overrides."""
 
@@ -155,9 +179,17 @@ def _create_orchestrator(
     )
 
     if config_data is None:
-        return Douglas(config_path=resolved_path)
+        try:
+            with resolved_path.open("r", encoding="utf-8") as handle:
+                loaded_config = yaml.safe_load(handle) or {}
+        except FileNotFoundError:
+            loaded_config = {}
+    else:
+        loaded_config = config_data
 
-    return Douglas(config_path=resolved_path, config_data=config_data)
+    merged_config = _merge_overrides(loaded_config, overrides)
+
+    return Douglas(config_path=resolved_path, config_data=merged_config)
 
 
 @app.command()
@@ -165,10 +197,45 @@ def run(
     config: Optional[Path] = _config_option(
         "Path to the douglas.yaml configuration file to use."
     ),
+    ai_mode: Optional[str] = typer.Option(
+        None,
+        "--ai-mode",
+        help="Override AI provider mode (mock, replay, null, real).",
+    ),
+    seed: Optional[int] = typer.Option(
+        None,
+        "--seed",
+        help="Seed for deterministic mock and replay providers.",
+    ),
+    cassette_dir: Optional[Path] = typer.Option(
+        None,
+        "--cassette-dir",
+        help="Directory for replay cassette files.",
+    ),
+    record_cassettes: bool = typer.Option(
+        False,
+        "--record-cassettes",
+        help="Record prompt/response pairs during real runs for later replay.",
+    ),
 ) -> None:
     """Execute the configured Douglas development loop."""
 
-    orchestrator = _create_orchestrator(config)
+    overrides: dict = {}
+    ai_overrides: dict = {}
+
+    if ai_mode:
+        ai_overrides["mode"] = ai_mode
+    if seed is not None:
+        ai_overrides["seed"] = int(seed)
+    if cassette_dir is not None:
+        ai_overrides["replay_dir"] = str(cassette_dir)
+    if record_cassettes:
+        ai_overrides["record_cassettes"] = True
+
+    if ai_overrides:
+        overrides["ai"] = ai_overrides
+
+    orchestrator = _create_orchestrator(config, overrides=overrides)
     orchestrator.run_loop()
 
 

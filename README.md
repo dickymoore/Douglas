@@ -13,6 +13,38 @@ Douglas now ships with tooling that turns it into an "agile team in a box":
 - **Live dashboard** – A FastAPI microservice (and static HTML renderer) reads `.douglas/state/`, `features/`, `inbox/`, and related folders to surface backlog totals, burn-down/burn-up metrics, and cumulative-flow trends. Start it with `douglas dashboard serve` or snapshot HTML with `douglas dashboard render`.
 - **Demo-script DSL** – Capture product tours in YAML or JSON under `.douglas/demos/`. Run them via `douglas demo run path/to/script.yaml` to execute CLI/API steps and generate an HTML+JSON report.
 
+### Offline modes
+
+Douglas can operate entirely without an external LLM by switching the AI provider mode. Three offline-capable providers ship in the box:
+
+- **Deterministic mock (`mock`)** – Generates realistic, minimal edits (backlog updates, smoke tests, helper functions) using a reproducible seed derived from the global seed, agent label, step name, and prompt hash.
+- **Replay (`replay`)** – Replays captured LLM outputs from JSONL cassettes under `.douglas/cassettes/` so the loop can run without calling a remote model.
+- **Null (`null`)** – Skips edits while still recording state entries so dashboards and history advance during smoke tests.
+
+The offline kill-switch is `DOUGLAS_OFFLINE=1`; set it in your environment or rely on the CLI to wire in a socket/HTTP guard automatically. The guard blocks outbound sockets and requests so offline jobs cannot accidentally hit the network.
+
+`douglas.yaml` accepts the following AI configuration:
+
+```yaml
+ai:
+  mode: mock        # mock | replay | null | real
+  seed: 123         # deterministic seed for mock/replay
+  replay_dir: .douglas/cassettes
+  record_cassettes: false
+```
+
+CLI overrides are available for ad-hoc runs:
+
+```bash
+douglas run --ai-mode mock --seed 123
+douglas run --ai-mode replay --cassette-dir .douglas/cassettes
+douglas run --ai-mode real --record-cassettes --seed 123
+```
+
+A sentinel file `.douglas/mock.on` forces mock mode regardless of configuration—handy for workshops or disconnected demos. See [docs/RECORDING.md](docs/RECORDING.md) for step-by-step cassette recording and replay guidance.
+
+Run the shared offline CI pipeline with `make ci-offline`, which executes `scripts/ci_offline.sh` (linters, type checks, offline-focused tests, a mock iteration, and a static dashboard render). A replay variant `scripts/ci_replay.sh` replays existing cassettes when they are committed to the repo.
+
 ## Two Ways to Use Douglas
 
 ### 1. Bootstrapping your own application
