@@ -1,0 +1,11 @@
+project:
+  name: "replay-fixture"
+  description: "Minimal project used to capture and replay Douglas cassettes in CI."
+  license: "MIT"
+  language: "python"
+ai:
+  provider: "codex"
+  model: "gpt-5-codex"
+  prompt: "system_prompt.md"
+loop:
+  steps: ["test"]

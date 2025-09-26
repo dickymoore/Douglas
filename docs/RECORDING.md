@@ -30,6 +30,27 @@ douglas run --ai-mode replay --cassette-dir .douglas/cassettes --seed 123
 
 The seed, agent label, step name, provider name, and prompt hash must match the recorded cassette for a replay to succeed.
 
+## Repository replay fixture
+
+Douglas keeps a committed cassette set under `tests/replay-fixture/` so CI/CD pipelines can validate replay mode without touching the main project workspace. When you need to refresh those cassettes:
+
+1. Change into the fixture directory so relative paths resolve correctly:
+   ```bash
+   cd tests/replay-fixture
+   ```
+2. Allow live provider calls and record a fresh run with the Codex provider:
+   ```bash
+   unset DOUGLAS_OFFLINE
+   douglas run --ai-mode real --provider codex --model gpt-5-codex \
+     --record-cassettes --seed 123 --cassette-dir .douglas/cassettes
+   ```
+3. Replay locally or in CI using the captured JSONL files:
+   ```bash
+   DOUGLAS_OFFLINE=1 douglas run --ai-mode replay \
+     --cassette-dir .douglas/cassettes --seed 123
+   ```
+4. Commit any updated files under `tests/replay-fixture/.douglas/cassettes/` alongside related changes.
+
 ## Refreshing cassettes
 
 Whenever prompts, configuration, or templates change you may need to refresh the cassette set:
