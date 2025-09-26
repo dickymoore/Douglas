@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 
 class LLMProvider(ABC):
@@ -13,6 +14,11 @@ class LLMProvider(ABC):
         model = options.get("model") or options.get("model_name")
         api_key = options.get("api_key") or options.get("token")
         base_url = options.get("base_url") or options.get("api_base")
+        project_root = options.get("project_root")
+        if project_root is not None and not isinstance(project_root, Path):
+            project_root = Path(project_root)
+        seed_option = options.get("seed")
+        seed = int(seed_option) if seed_option is not None else 0
 
         if normalized in {"openai", "gpt", "gpt-4", "gpt4"}:
             from douglas.providers.openai_provider import OpenAIProvider
@@ -39,5 +45,38 @@ class LLMProvider(ABC):
 
             token = options.get("token") or api_key
             return CopilotProvider(model_name=model, token=token)
+
+        if normalized in {"mock", "deterministic_mock"}:
+            from douglas.providers.mock_provider import DeterministicMockProvider
+
+            if project_root is None:
+                raise ValueError("Deterministic mock provider requires project_root.")
+            return DeterministicMockProvider(project_root=project_root, seed=seed)
+
+        if normalized == "replay":
+            from douglas.providers.replay_provider import ReplayProvider
+
+            store = options.get("cassette_store")
+            project_fingerprint = options.get("project_fingerprint", "")
+            if store is None:
+                raise ValueError("Replay provider requires a cassette store instance.")
+            if project_root is None:
+                project_root = Path.cwd()
+            provider_label = options.get("provider_name") or options.get("provider_label")
+            return ReplayProvider(
+                store=store,
+                project_root=project_root,
+                project_fingerprint=str(project_fingerprint),
+                base_seed=seed,
+                model_name=model,
+                provider_name=str(provider_label) if provider_label else "replay",
+            )
+
+        if normalized == "null":
+            from douglas.providers.null_provider import NullProvider
+
+            if project_root is None:
+                project_root = Path.cwd()
+            return NullProvider(project_root=project_root)
 
         raise ValueError(f"Unsupported LLM provider: {name}")

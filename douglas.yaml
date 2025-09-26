@@ -4,6 +4,10 @@ project:
   license: none
   language: python
 ai:
+  mode: real
+  seed: 0
+  replay_dir: .douglas/cassettes
+  record_cassettes: false
   default_provider: codex
   providers:
     codex:

@@ -125,6 +125,10 @@ class Douglas:
         },
         "ai": {
             "default_provider": "codex",
+            "mode": "real",
+            "seed": 0,
+            "replay_dir": ".douglas/cassettes",
+            "record_cassettes": False,
             "providers": {
                 "codex": {
                     "provider": "codex",
@@ -448,7 +452,7 @@ class Douglas:
             ai_config = {}
 
         try:
-            registry = LLMProviderRegistry(ai_config)
+            registry = LLMProviderRegistry(ai_config, project_root=self.project_root)
         except ValueError as exc:
             print(f"LLM provider configuration invalid: {exc}")
             sys.exit(1)

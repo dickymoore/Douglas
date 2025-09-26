@@ -1,4 +1,4 @@
-.PHONY: venv test
+.PHONY: venv test ci-offline
 
 venv:
 	python -m venv .venv
@@ -8,4 +8,7 @@ venv:
 		pip install -e .
 
 test:
-	. .venv/bin/activate && pytest -q
+        . .venv/bin/activate && pytest -q
+
+ci-offline:
+	./scripts/ci_offline.sh
