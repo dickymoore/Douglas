@@ -109,6 +109,11 @@ class LLMProviderRegistry:
                 provider_name=self._mode,
                 model_name=options.get("model"),
             )
+            # In offline modes (mock, replay, null), we intentionally skip the standard
+            # provider configuration logic below. Only a single offline provider is needed,
+            # and the rest of the configuration (named providers, assignments, etc.) is not
+            # relevant in these modes. This early return ensures that only the offline
+            # provider is registered and used.
             return
 
         providers_cfg = config.get("providers")
