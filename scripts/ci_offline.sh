@@ -1,5 +1,5 @@
 #!/bin/sh
-set -euo pipefail
+set -eu
 
 export DOUGLAS_OFFLINE=1
 
