@@ -222,8 +222,20 @@ class CassetteStore:
                 else None
             )
             if existing_text != new_text:
+                key_json = json.dumps(key.as_dict(), sort_keys=True)
+                existing_hash = (
+                    hashlib.sha256(existing_text.encode("utf-8")).hexdigest()
+                    if isinstance(existing_text, str) else "N/A"
+                )
+                new_hash = (
+                    hashlib.sha256(new_text.encode("utf-8")).hexdigest()
+                    if isinstance(new_text, str) else "N/A"
+                )
                 warnings.warn(
-                    "Cassette key collision detected; writing to new replay file.",
+                    f"Cassette key collision detected; writing to new replay file.\n"
+                    f"Key: {key_json}\n"
+                    f"Existing output hash: {existing_hash}\n"
+                    f"New output hash: {new_hash}",
                     RuntimeWarning,
                 )
                 counter = 1
