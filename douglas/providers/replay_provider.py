@@ -163,7 +163,7 @@ class CassetteStore:
             self._loaded = True
             return
         for path in sorted(
-            self.directory.glob("*.jsonl"), key=_cassette_sort_key
+            self.directory.glob("*.jsonl"), key=_cassette_sort_key, reverse=True
         ):
             try:
                 with path.open("r", encoding="utf-8") as handle:
@@ -202,7 +202,7 @@ class CassetteStore:
                                 else None
                             ),
                         )
-                        self._index[key.as_tuple()] = data
+                        self._index.setdefault(key.as_tuple(), data)
             except OSError:
                 continue
         self._loaded = True
