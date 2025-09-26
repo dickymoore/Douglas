@@ -9,4 +9,5 @@ ai:
   prompt: "system_prompt.md"
 loop:
   steps: ["test"]
-  exit_conditions: ["tests_pass"]
+  exit_conditions: []
+  max_iterations: 5
