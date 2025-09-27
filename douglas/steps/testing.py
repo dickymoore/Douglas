@@ -13,10 +13,7 @@ from douglas.domain.metrics import Coverage, PassFailCounts, VelocityInputs
 from douglas.steps import StepResult
 
 
-def _derive_seed(base_seed: int, name: str) -> int:
-    material = f"{base_seed}:{name}".encode("utf-8")
-    digest = hashlib.sha256(material).hexdigest()
-    return int(digest[:16], 16)
+from douglas.steps.utils import _derive_seed
 
 
 def _normalise_range(values: Sequence[float]) -> tuple[float, float]:
