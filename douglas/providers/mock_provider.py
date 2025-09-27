@@ -17,7 +17,7 @@ from douglas.domain.backlog import (
     render_backlog_markdown,
     serialize_backlog,
 )
-
+from douglas.domain.step_result import StepResult
 from douglas.providers.llm_provider import LLMProvider
 
 
@@ -44,7 +44,7 @@ def _derive_seed(
     return int(digest[:16], 16)
 
 
-def _slugify(text: str, length: int = 8) -> str:
+def _slugify_id(text: str, length: int = 8) -> str:
     cleaned = [ch for ch in text.lower() if ch.isalnum()]
     slug = "".join(cleaned)[:length]
     if slug:
@@ -61,7 +61,7 @@ class _MockContext:
     base_seed: int
 
     def workspace_dir(self) -> Path:
-        slug = _slugify(f"{self.agent_label}-{self.step_name}")
+        slug = _slugify_id(f"{self.agent_label}-{self.step_name}")
         workspace = self.project_root / ".douglas" / "workspaces" / slug
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
@@ -95,7 +95,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             adjective = adjectives[(idx + rng.randrange(len(adjectives))) % len(adjectives)]
             artifact = artifacts[(idx + rng.randrange(len(artifacts))) % len(artifacts)]
             title = f"{adjective.title()} {artifact.title()} polish"
-            entry_id = f"mock-{_slugify(title, 10)}"
+            entry_id = f"mock-{_slugify_id(title, 10)}"
             entries.append(
                 {
                     "id": entry_id,
@@ -452,6 +452,39 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             relative = path
         return relative.as_posix()
 
+    def generate_step_result(
+        self,
+        prompt: str,
+        *,
+        step_name: str | None = None,
+        agent: str | None = None,
+        role: str | None = None,
+        seed: int | None = None,
+        prompt_hash: str | None = None,
+        timestamps: dict | None = None,
+    ) -> StepResult:
+        resolved_step = step_name or self._context.step_name
+        resolved_agent = agent or self._context.agent_label
+        resolved_role = role or self._context.agent_label
+        prompt_digest = prompt_hash or _hash_prompt(prompt)
+        derived_seed = seed
+        if derived_seed is None:
+            derived_seed = _derive_seed(
+                self._context.base_seed,
+                resolved_agent,
+                resolved_step,
+                prompt_digest,
+            )
+        return super().generate_step_result(
+            prompt,
+            step_name=resolved_step,
+            agent=resolved_agent,
+            role=resolved_role,
+            seed=derived_seed,
+            prompt_hash=prompt_digest,
+            timestamps=timestamps,
+        )
+
     def generate_code(self, prompt: str) -> str:
         step = self._context.step_name.lower()
         if step == "sprint_zero":
@@ -537,7 +570,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             theme = themes[(epic_index + rng.randrange(len(themes))) % len(themes)]
             descriptor = descriptors[(epic_index + rng.randrange(len(descriptors))) % len(descriptors)]
             epic_title = f"{descriptor.title()} {theme.title()} Initiative"
-            epic_id = f"EP-{_slugify(epic_title, 10)}"
+            epic_id = f"EP-{_slugify_id(epic_title, 10)}"
             epic_description = (
                 f"Deliver a {descriptor} {theme} experience for early project alignment."
             )
@@ -558,7 +591,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
                     (feature_offset + rng.randrange(len(outcomes))) % len(outcomes)
                 ]
                 feature_title = f"{capability.title()} {outcome.title()}"
-                feature_id = f"FT-{_slugify(feature_title + epic_id, 10)}"
+                feature_id = f"FT-{_slugify_id(feature_title + epic_id, 10)}"
                 feature_description = (
                     f"Provide {capability} capabilities through a {outcome} focused on {theme}."
                 )
@@ -585,7 +618,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
                     story_title = (
                         f"As a {persona}, I want to {action} the {outcome} outcomes."
                     )
-                    story_id = f"ST-{_slugify(story_title + feature_id, 12)}"
+                    story_id = f"ST-{_slugify_id(story_title + feature_id, 12)}"
                     story_description = (
                         f"Enable the {persona} persona to {action} the {outcome} produced by {feature_title}."
                     )
@@ -669,4 +702,3 @@ class DeterministicMockProvider(LLMProvider):
         raise RuntimeError(
             "DeterministicMockProvider requires contextualisation via with_context()."
         )
-

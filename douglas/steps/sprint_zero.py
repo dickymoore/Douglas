@@ -97,12 +97,21 @@ class StepResult:
     raw_response: str | None = None
 
     def persist(self, project_root: Path) -> None:
+        root = project_root.resolve()
         for relative_path, content in self.artifacts.items():
-            path = Path(relative_path)
-            if not path.is_absolute():
-                path = project_root / path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            candidate = Path(relative_path)
+            if candidate.is_absolute():
+                resolved = candidate.resolve()
+            else:
+                resolved = (root / candidate).resolve()
+            try:
+                resolved.relative_to(root)
+            except ValueError as exc:
+                raise ValueError(
+                    "Sprint Zero artifact path escapes project root"
+                ) from exc
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            resolved.write_text(content, encoding="utf-8")
 
 
 def _build_prompt(context: SprintZeroContext) -> str:
