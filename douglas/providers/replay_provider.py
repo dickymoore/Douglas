@@ -208,6 +208,11 @@ class CassetteStore:
                         )
                         # Use setdefault to preserve the first occurrence (the newest recording,
                         # since files are processed in reverse order) when duplicate keys are encountered.
+                        if key.as_tuple() in self._index:
+                            warnings.warn(
+                                f"Duplicate cassette key encountered: {key.as_tuple()} in file {path}. "
+                                "This may indicate a problem with cassette generation."
+                            )
                         self._index.setdefault(key.as_tuple(), data)
             except OSError:
                 continue
