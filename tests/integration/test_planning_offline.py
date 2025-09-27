@@ -10,13 +10,6 @@ from douglas.steps import planning as planning_step
 from tests.integration.test_offline_sprint_zero import _prepare_project
 
 
-def _safe_int(value, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
-
-
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
 def test_sprint_planning_is_deterministic(tmp_path, monkeypatch):
     project_dir = _prepare_project(tmp_path)
@@ -67,9 +60,15 @@ def test_sprint_planning_is_deterministic(tmp_path, monkeypatch):
 
     ai_config = config.get("ai", {}) or {}
     seed_value = ai_config.get("seed", 0)
-    planning_seed = _safe_int(seed_value)
+    try:
+        planning_seed = int(seed_value)
+    except (TypeError, ValueError):
+        planning_seed = 0
 
-    items_per_sprint = _safe_int(plan_data.get("items_requested", 0))
+    try:
+        items_per_sprint = int(plan_data.get("items_requested", 0))
+    except (TypeError, ValueError):
+        items_per_sprint = 0
 
     rerun_context = planning_step.PlanningContext(
         project_root=project_dir,
