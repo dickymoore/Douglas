@@ -379,6 +379,7 @@ class Douglas:
         ] = {}
         self._run_state_path = self._resolve_run_state_path()
         self._soft_stop_pending = False
+        self._pending_sprint_plan_refresh = False
         accountability_cfg = self.config.get("accountability", {}) or {}
         self._accountability_enabled = bool(accountability_cfg.get("enabled", True))
         stall_value = accountability_cfg.get("stall_iterations", 3)

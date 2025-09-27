@@ -495,11 +495,62 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             return self._generate_output(prompt)
         if step == "review":
             return self._review_output(prompt)
+        if step == "delivery":
+            return self._delivery_output(prompt)
         if step in {"lint", "typecheck", "security", "test"}:
             return self._ci_output(prompt, step)
         return (
             "Offline mock provider executed without generating edits."
         )
+
+    def _delivery_output(self, prompt: str) -> str:
+        metadata: Dict[str, str] = {}
+        for line in prompt.splitlines():
+            if ":" not in line:
+                continue
+            raw_key, raw_value = line.split(":", 1)
+            key = raw_key.strip().lower().replace("-", "_")
+            metadata[key] = raw_value.strip()
+
+        story_id = (metadata.get("story_id") or "story").strip() or "story"
+        story_title = (metadata.get("story_title") or story_id).strip() or story_id
+        provided_slug = (metadata.get("story_slug") or "").strip()
+        story_slug = provided_slug or _slugify_text(story_id or story_title, 12)
+        helper_path = metadata.get("helper_path") or f"delivery_helpers/{story_slug}.py"
+        test_path = metadata.get("test_path") or f"tests/delivery/test_{story_slug}.py"
+
+        display_id = story_id or story_slug
+        marker = f"{display_id}:{story_slug}"
+
+        helper_module = Path(helper_path).with_suffix("").as_posix().replace("/", ".")
+
+        helper_content = textwrap.dedent(
+            f"""\
+            \"\"\"Delivery helper for {story_title} ({display_id}).\"\"\"
+
+            from __future__ import annotations
+
+
+            def deliver_{story_slug}(note: str = \"ready\") -> str:
+                \"\"\"Return a deterministic marker for smoke tests.\"\"\"
+                normalized = note or \"ready\"
+                return \"{marker}:\" + normalized
+            """
+        ).strip() + "\n"
+
+        test_content = textwrap.dedent(
+            f"""\
+            from {helper_module} import deliver_{story_slug}
+
+
+            def test_deliver_{story_slug}_uses_story_marker() -> None:
+                assert deliver_{story_slug}(\"ok\") == \"{marker}:ok\"
+            """
+        ).strip() + "\n"
+
+        helper_block = self._format_block(helper_path, helper_content)
+        test_block = self._format_block(test_path, test_content)
+        return f"{helper_block}\n\n{test_block}"
 
     def _sprint_zero_output(self, prompt: str) -> str:
         prompt_hash = _hash_prompt(prompt)
