@@ -134,7 +134,14 @@ def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str]
 
 def _sanitize_log_value(value: object) -> str:
     text = str(value)
-    return text.replace("\n", " ").replace("\r", " ")
+    sanitized_chars = []
+    for char in text:
+        codepoint = ord(char)
+        if char in {"\n", "\r"} or codepoint < 32:
+            sanitized_chars.append(" ")
+        else:
+            sanitized_chars.append(char)
+    return "".join(sanitized_chars)
 
 
 def _normalize_fallback_items(
@@ -318,6 +325,8 @@ def run_planning(context: PlanningContext) -> PlanningStepResult:
         items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(
             items, signature, status, context.backlog_fallback
         )
+
+    filtered = _filter_commitments(items)
     selection_seed = _selection_seed(context.seed, context.sprint_index, signature)
     requested_count = max(context.items_per_sprint, 0)
     commitments = _select_commitments(
@@ -350,12 +359,13 @@ def run_planning(context: PlanningContext) -> PlanningStepResult:
     if json_path.exists():
         try:
             existing_payload = json.loads(json_path.read_text(encoding="utf-8"))
-            if isinstance(existing_payload, Mapping):
         except (OSError, json.JSONDecodeError):
+            existing_payload = None
+        else:
+            if isinstance(existing_payload, Mapping):
+                raw_timestamp = existing_payload.get("generated_at")
                 if isinstance(raw_timestamp, str):
                     previous_generated_at = raw_timestamp
-        except (OSError, json.JSONDecodeError):  # pragma: no cover - defensive
-            previous_generated_at = None
 
     if previous_generated_at:
         try:

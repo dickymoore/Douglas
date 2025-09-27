@@ -79,3 +79,74 @@ def test_run_planning_uses_fallback_when_state_missing(tmp_path):
     assert result.used_fallback
     assert result.plan is not None
     assert result.plan.commitments
+
+
+def test_run_planning_preserves_existing_generated_timestamp(tmp_path):
+    project_root = Path(tmp_path)
+    state_dir = project_root / ".douglas" / "state"
+    state_dir.mkdir(parents=True)
+
+    backlog_path = state_dir / "backlog.json"
+    backlog_payload = {
+        "items": [
+            {"id": "FT-1", "title": "Feature One", "status": "ready"},
+        ]
+    }
+    backlog_path.write_text(json.dumps(backlog_payload), encoding="utf-8")
+
+    existing_plan_path = state_dir / "sprint_plan_1.json"
+    previous_timestamp = "2024-05-06T07:08:09+00:00"
+    existing_plan_path.write_text(
+        json.dumps({"generated_at": previous_timestamp}), encoding="utf-8"
+    )
+
+    context = planning_step.PlanningContext(
+        project_root=project_root,
+        backlog_state_path=backlog_path,
+        sprint_index=1,
+    )
+
+    result = planning_step.run_planning(context)
+
+    assert result.success
+    assert result.plan is not None
+    assert result.plan.generated_at.isoformat() == previous_timestamp
+
+
+def test_run_planning_handles_existing_plan_read_oserror(tmp_path, monkeypatch):
+    project_root = Path(tmp_path)
+    state_dir = project_root / ".douglas" / "state"
+    state_dir.mkdir(parents=True)
+
+    backlog_path = state_dir / "backlog.json"
+    backlog_payload = {
+        "items": [
+            {"id": "FT-1", "title": "Feature One", "status": "ready"},
+            {"id": "ST-2", "title": "Story Two", "status": "todo"},
+        ]
+    }
+    backlog_path.write_text(json.dumps(backlog_payload), encoding="utf-8")
+
+    plan_path = state_dir / "sprint_plan_1.json"
+    plan_path.write_text("{}", encoding="utf-8")
+
+    context = planning_step.PlanningContext(
+        project_root=project_root,
+        backlog_state_path=backlog_path,
+        sprint_index=1,
+    )
+
+    original_read_text = planning_step.Path.read_text
+
+    def patched_read_text(self, *args, **kwargs):
+        if self == plan_path:
+            raise OSError("simulated read error")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(planning_step.Path, "read_text", patched_read_text)
+
+    result = planning_step.run_planning(context)
+
+    assert result.success
+    assert result.plan is not None
+    assert plan_path.exists()
