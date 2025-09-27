@@ -10,7 +10,7 @@ import textwrap
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Mapping, Optional, Sequence
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 from douglas.domain.sprint import Commitment, SprintPlan
 from douglas.providers.llm_provider import LLMProvider
@@ -30,10 +30,25 @@ _SKIPPED_STATUSES = {
     "cancelled",
 }
 
+_PRIMARY_GOAL_LIMIT = 3
+
 
 @dataclass
 class PlanningContext:
-    """Parameters needed to build a sprint plan."""
+    """Parameters needed to build a sprint plan.
+
+    Args:
+        project_root: Root directory of the project being planned.
+        backlog_state_path: Path to the serialized backlog JSON file.
+        sprint_index: Index (1-based) of the sprint being planned.
+        items_per_sprint: Number of commitments to pull into the sprint.
+        seed: Global seed used to derive deterministic selection seeds.
+        provider: Optional LLM provider used to draft sprint summaries.
+        summary_intro: Optional freeform text prepended to generated summaries.
+        state_dir: Optional override for where plan JSON artifacts are written.
+        markdown_dir: Optional override for where plan markdown is written.
+        backlog_fallback: Optional backlog payload used when state is missing.
+    """
 
     project_root: Path
     backlog_state_path: Path
@@ -117,21 +132,66 @@ def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str]
     return items, signature, "ok" if items else "empty_backlog"
 
 
+def _sanitize_log_value(value: object) -> str:
+    text = str(value)
+    return text.replace("\n", " ").replace("\r", " ")
+
+
+def _normalize_fallback_items(
+    items: Iterable[Mapping[str, object]]
+) -> List[Mapping[str, object]]:
+    normalized_items: List[Mapping[str, object]] = []
+    for raw in items:
+        if not isinstance(raw, Mapping):
+            continue
+        candidate = dict(raw)
+        identifier = (
+            candidate.get("id")
+            or candidate.get("identifier")
+            or candidate.get("external_id")
+        )
+        title = candidate.get("title") or candidate.get("name")
+        status = candidate.get("status") or candidate.get("state")
+        if identifier and "id" not in candidate:
+            candidate["id"] = identifier
+        if title and "title" not in candidate:
+            candidate["title"] = title
+        if status and "status" not in candidate:
+            candidate["status"] = status
+        normalized_items.append(candidate)
+    return normalized_items
+
+
 def _extract_fallback_items(
     data: Optional[Mapping[str, object]]
 ) -> List[Mapping[str, object]]:
     if not isinstance(data, Mapping):
         return []
-    items = data.get("items")
-    if isinstance(items, Sequence):
-        return [item for item in items if isinstance(item, Mapping)]
-    stories = data.get("stories")
-    if isinstance(stories, Sequence):
-        return [story for story in stories if isinstance(story, Mapping)]
-    tasks = data.get("tasks")
-    if isinstance(tasks, Sequence):
-        return [task for task in tasks if isinstance(task, Mapping)]
-    return []
+
+    collected: List[Mapping[str, object]] = []
+    seen_ids: set[str] = set()
+
+    def _collect(sequence: object) -> None:
+        if isinstance(sequence, Sequence):
+            for normalized in _normalize_fallback_items(
+                item for item in sequence if isinstance(item, Mapping)
+            ):
+                identifier = normalized.get("id")
+                if isinstance(identifier, str):
+                    if identifier in seen_ids:
+                        continue
+                    seen_ids.add(identifier)
+                collected.append(normalized)
+
+    for key in ("items", "stories", "tasks", "features", "epics"):
+        _collect(data.get(key))
+
+    backlog = data.get("backlog")
+    if isinstance(backlog, Mapping):
+        for key in ("items", "stories", "tasks", "features", "epics"):
+            _collect(backlog.get(key))
+
+    return collected
 
 
 def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
@@ -157,8 +217,8 @@ def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitmen
             )
             logger.warning(
                 "Skipping backlog item %s due to invalid commitment data: %s",
-                item_reference,
-                exc,
+                _sanitize_log_value(item_reference),
+                _sanitize_log_value(exc),
             )
             continue
         commitments.append(commitment)
@@ -182,8 +242,10 @@ def _select_commitments(
 def _derive_goals(commitments: Sequence[Commitment], sprint_index: int) -> List[str]:
     if not commitments:
         return [f"Refine backlog priorities for Sprint {sprint_index}."]
-    goals = [f"Deliver: {commitment.title}" for commitment in commitments[:3]]
-    remaining = len(commitments) - 3
+    goals = [
+        f"Deliver: {commitment.title}" for commitment in commitments[:_PRIMARY_GOAL_LIMIT]
+    ]
+    remaining = len(commitments) - _PRIMARY_GOAL_LIMIT
     if remaining > 0:
         plural = "s" if remaining != 1 else ""
         goals.append(f"Prepare {remaining} additional backlog item{plural} for upcoming work.")
@@ -254,11 +316,11 @@ def run_planning(context: PlanningContext) -> PlanningStepResult:
 
     filtered = _filter_commitments(items)
     selection_seed = _selection_seed(context.seed, context.sprint_index, signature)
-    requested = max(context.items_per_sprint, 0)
+    requested_count = max(context.items_per_sprint, 0)
     commitments = _select_commitments(
         filtered,
         selection_seed,
-        requested,
+        requested_count,
     )
     goals = _derive_goals(commitments, context.sprint_index)
 
@@ -266,7 +328,7 @@ def run_planning(context: PlanningContext) -> PlanningStepResult:
         sprint_index=context.sprint_index,
         commitments=commitments,
         goals=goals,
-        items_requested=requested,
+        items_requested=requested_count,
         backlog_items_total=len(filtered),
         selection_seed=selection_seed,
         backlog_signature=signature,

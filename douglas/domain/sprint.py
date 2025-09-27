@@ -73,6 +73,13 @@ class SprintPlan:
 
     @staticmethod
     def signature_for_items(items: Sequence[Mapping[str, object]]) -> str:
+        """Return a deterministic hash for a sequence of backlog items.
+
+        The signature is used to detect when the underlying backlog changes
+        without relying on object identity or ordering. Only the normalised
+        identifier, title, status, and owner fields participate in the hash to
+        keep the digest stable across unrelated metadata updates.
+        """
         canonical: List[Dict[str, str]] = []
         for item in items:
             if isinstance(item, Mapping):
