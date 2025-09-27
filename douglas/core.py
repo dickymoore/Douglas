@@ -40,6 +40,7 @@ from douglas.pipelines import retro as retropipe
 from douglas.pipelines import security as securitypipe
 from douglas.pipelines import test as testpipe
 from douglas.pipelines import typecheck
+from douglas.steps import planning as planning_step
 from douglas.providers.claude_code_provider import ClaudeCodeProvider
 from douglas.providers.codex_provider import CodexProvider
 from douglas.providers.copilot_provider import CopilotProvider
@@ -379,6 +380,9 @@ class Douglas:
         ] = {}
         self._run_state_path = self._resolve_run_state_path()
         self._soft_stop_pending = False
+        # Flag indicating whether a sprint plan refresh is pending.
+        # Set to True in methods such as `update_cadence`, `trigger_sprint_plan_refresh`, or when an external
+        # event requires the sprint plan to be refreshed before the next iteration.
         self._pending_sprint_plan_refresh = False
         accountability_cfg = self.config.get("accountability", {}) or {}
         self._accountability_enabled = bool(accountability_cfg.get("enabled", True))
@@ -474,6 +478,81 @@ class Douglas:
         except Exception:  # pragma: no cover - defensive fallback
             provider = None
         return provider or self.lm_provider
+
+    def _build_planning_context(
+        self,
+        planning_config: Mapping[str, Any],
+        *,
+        backlog_fallback: Optional[Mapping[str, object]] = None,
+    ) -> planning_step.PlanningContext:
+        ai_config = self.config.get("ai") if hasattr(self.config, "get") else {}
+        base_seed = 0
+        if isinstance(ai_config, Mapping):
+            seed_value = ai_config.get("seed", 0)
+            try:
+                base_seed = int(seed_value)
+            except (TypeError, ValueError):
+                base_seed = 0
+        raw_items_per_sprint = planning_config.get("items_per_sprint", 3)
+        try:
+            items_per_sprint = int(raw_items_per_sprint)
+        except (TypeError, ValueError):
+            items_per_sprint = 3
+        if items_per_sprint < 0:
+            items_per_sprint = 0
+        goal_text = planning_config.get("goal")
+        summary_intro = (
+            goal_text if isinstance(goal_text, str) and goal_text.strip() else None
+        )
+        planning_provider = self._resolve_llm_provider("ProductOwner", "planning")
+        return planning_step.PlanningContext(
+            project_root=self.project_root,
+            backlog_state_path=(
+                self.project_root / ".douglas" / "state" / "backlog.json"
+            ),
+            sprint_index=self.sprint_manager.sprint_index,
+            items_per_sprint=items_per_sprint,
+            seed=base_seed,
+            provider=planning_provider,
+            summary_intro=summary_intro,
+            backlog_fallback=backlog_fallback,
+        )
+
+    def _refresh_sprint_plan(
+        self, planning_config: Mapping[str, Any]
+    ) -> Optional[planning_step.PlanningStepResult]:
+        try:
+            planning_context = self._build_planning_context(planning_config)
+            result = planning_step.run_planning(planning_context)
+        except Exception as exc:
+            logger.exception("Sprint planning refresh failed", exc_info=exc)
+            return None
+
+        summary = result.summary(self.project_root)
+        plan_outcome = self._loop_outcomes.get("plan")
+        if isinstance(plan_outcome, dict):
+            plan_outcome["sprint_plan"] = summary
+
+        if result.plan is not None and result.success:
+            event_payload = {
+                "sprint": result.plan.sprint_index,
+                "goals": result.plan.goals,
+                "commitments": result.plan.commitment_ids,
+            }
+            json_ref = summary.get("json_path")
+            if json_ref:
+                event_payload["json_path"] = json_ref
+            markdown_ref = summary.get("markdown_path")
+            if markdown_ref:
+                event_payload["markdown_path"] = markdown_ref
+            self._write_history_event("sprint_plan", event_payload)
+            if result.plan.commitments:
+                print(
+                    "Updated sprint plan after backlog initialization "
+                    f"with {len(result.plan.commitments)} commitments."
+                )
+
+        return result
 
     def _infer_ai_provider_from_config(
         self, ai_config: Mapping[str, Any]
@@ -1255,6 +1334,12 @@ class Douglas:
         if step_name == "generate":
             print("Running generate step...")
             changes_applied = bool(self.generate())
+            if self._pending_sprint_plan_refresh:
+                planning_config = self.config.get("planning") or {}
+                if planning_config.get("enabled", True):
+                    refresh_succeeded = self._refresh_sprint_plan(planning_config)
+                    if refresh_succeeded:
+                        self._pending_sprint_plan_refresh = False
             return StepExecutionResult(
                 True, changes_applied, override_event, already_recorded
             )
@@ -1397,6 +1482,23 @@ class Douglas:
 
             plan_result = planpipe.run_plan(plan_context)
 
+            planning_result: Optional[planning_step.PlanningStepResult] = None
+            try:
+                planning_context = self._build_planning_context(
+                    planning_config,
+                    backlog_fallback=plan_result.backlog_data
+                    if getattr(plan_result, "backlog_data", None)
+                    else None,
+                )
+                planning_result = planning_step.run_planning(planning_context)
+            except Exception as exc:
+                logger.exception("Sprint planning step failed", exc_info=exc)
+                planning_result = planning_step.PlanningStepResult(
+                    executed=False,
+                    success=False,
+                    reason=f"exception:{exc}",
+                )
+
             if plan_result.created_backlog:
                 try:
                     backlog_display = str(
@@ -1437,6 +1539,32 @@ class Douglas:
                         relative = path
                     charter_map[name] = str(relative)
                 summary_details["charters"] = charter_map
+
+            if planning_result is not None:
+                sprint_plan_summary = planning_result.summary(self.project_root)
+                summary_details["sprint_plan"] = sprint_plan_summary
+                if planning_result.plan is not None and planning_result.success:
+                    event_payload = {
+                        "sprint": planning_result.plan.sprint_index,
+                        "goals": planning_result.plan.goals,
+                        "commitments": planning_result.plan.commitment_ids,
+                    }
+                    json_ref = sprint_plan_summary.get("json_path")
+                    if json_ref:
+                        event_payload["json_path"] = json_ref
+                    markdown_ref = sprint_plan_summary.get("markdown_path")
+                    if markdown_ref:
+                        event_payload["markdown_path"] = markdown_ref
+                    self._write_history_event("sprint_plan", event_payload)
+                    if planning_result.plan.commitments:
+                        print(
+                            "Selected "
+                            f"{len(planning_result.plan.commitments)} backlog items for sprint "
+                            f"{planning_result.plan.sprint_index}."
+                        )
+            self._pending_sprint_plan_refresh = bool(
+                planning_result and planning_result.used_fallback
+            )
 
             self._record_agent_summary(
                 "ProductOwner",
@@ -1482,6 +1610,13 @@ class Douglas:
             executed = plan_result.created_backlog or not is_skip
             success = plan_result.created_backlog or is_skip
             failure_details = None if success else message
+            if planning_result is not None:
+                if planning_result.executed:
+                    executed = True
+                if not planning_result.success:
+                    success = False
+                    if planning_result.reason:
+                        failure_details = planning_result.reason
             return StepExecutionResult(
                 executed,
                 success,

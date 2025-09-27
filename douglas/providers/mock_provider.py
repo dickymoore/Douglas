@@ -8,7 +8,7 @@ import random
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from douglas.domain.backlog import (
     Epic,
@@ -203,6 +203,74 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             )
 
         return [md_block, json_block, *work_blocks]
+
+    def _extract_plan_payload(self, prompt: str) -> Optional[Dict[str, object]]:
+        start = prompt.find("<plan-data>")
+        end = prompt.find("</plan-data>")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        block = prompt[start + len("<plan-data>") : end].strip()
+        if not block:
+            return None
+        try:
+            payload = json.loads(block)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(payload, Dict):
+            return payload
+        if isinstance(payload, Mapping):
+            return dict(payload)
+        return None
+
+    def _planning_summary(self, prompt: str) -> str:
+        payload = self._extract_plan_payload(prompt) or {}
+        sprint_value = payload.get("sprint")
+        try:
+            sprint_label = int(sprint_value)
+        except (TypeError, ValueError):
+            sprint_label = 0
+
+        goals_raw = payload.get("goals")
+        if isinstance(goals_raw, Sequence):
+            goals = [str(goal).strip() for goal in goals_raw if goal is not None]
+        else:
+            goals = []
+
+        commitments_raw = payload.get("commitments")
+        commitments: List[Dict[str, object]] = []
+        if isinstance(commitments_raw, Sequence):
+            for item in commitments_raw:
+                if isinstance(item, Mapping):
+                    commitments.append({
+                        "id": str(item.get("id", "")).strip() or "(missing)",
+                        "title": str(item.get("title", "")).strip() or "Untitled work item",
+                        "status": str(item.get("status", "todo")).strip() or "todo",
+                        "owner": str(item.get("owner", "Unassigned")).strip() or "Unassigned",
+                    })
+
+        lines = [
+            f"## Mock Sprint {sprint_label or 'plan'} summary",
+            f"Seed: {self._context.base_seed}",
+            f"Agent: {self._context.agent_label}",
+            f"Step: {self._context.step_name}",
+        ]
+        if goals:
+            lines.append("")
+            lines.append("### Goals")
+            for goal in goals:
+                lines.append(f"- {goal}")
+        if commitments:
+            lines.append("")
+            lines.append("### Commitments")
+            for entry in commitments:
+                lines.append(
+                    f"- {entry['id']}: {entry['title']} "
+                    f"(status: {entry['status']}, owner: {entry['owner']})"
+                )
+        if not goals and not commitments:
+            lines.append("")
+            lines.append("_No backlog commitments available for this sprint._")
+        return "\n".join(lines).strip() + "\n"
 
     def _render_readme_section(self, existing: str, marker: str, slug: str) -> str:
         if marker in existing:
@@ -491,6 +559,8 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             return self._sprint_zero_output(prompt)
         if step == "plan":
             return self._plan_output(prompt)
+        if step == "planning":
+            return self._planning_summary(prompt)
         if step == "generate":
             return self._generate_output(prompt)
         if step == "review":
