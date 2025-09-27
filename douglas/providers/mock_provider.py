@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from douglas.providers.llm_provider import LLMProvider
+from douglas.steps.ci import CIStep
+from douglas.steps.testing import OfflineTestingConfig, OfflineTestingStep
 
 
 def _normalize_whitespace(value: str) -> str:
@@ -393,45 +395,50 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             self._context.step_name,
             prompt_hash,
         )
-        slug = f"{seed:016x}"[:8]
-        state_dir = self._context.project_root / ".douglas" / "state"
-        inbox_dir = self._context.project_root / "ai-inbox" / "ci"
-        state_dir.mkdir(parents=True, exist_ok=True)
-        inbox_dir.mkdir(parents=True, exist_ok=True)
-
         rng = random.Random(seed)
-        check_count = 1 + rng.randrange(3)
-        summary = {
-            "status": "passed",
-            "checks": check_count,
-            "seed": self._context.base_seed,
-            "category": category,
-            "prompt_hash": prompt_hash,
-        }
-        json_payload = json.dumps(summary, indent=2, sort_keys=True) + "\n"
-        text_report = textwrap.dedent(
-            f'''
-            {category.upper()} REPORT (mock)
-            Seed: {self._context.base_seed}
-            Prompt: {prompt_hash}
-            Checks executed: {check_count}
-            Result: PASS
-            '''
-        ).strip("\n") + "\n"
 
-        json_block = self._format_block(
-            self._relative_path(
-                state_dir / f"{category}_report_{slug}.json"
-            ),
-            json_payload,
-        )
-        text_block = self._format_block(
-            self._relative_path(
-                inbox_dir / f"{category}_report_{slug}.txt"
-            ),
-            text_report,
-        )
-        return f"{json_block}\n\n{text_block}"
+        if category == "test":
+            low = 0.6 + rng.random() * 0.15
+            high = min(0.98, low + 0.05 + rng.random() * 0.1)
+            config = OfflineTestingConfig(
+                seed=seed,
+                suite="unit",
+                test_count=6 + rng.randrange(5),
+                failure_rate=min(0.4, rng.random() * 0.25),
+                coverage_range=(low * 100, high * 100),
+            )
+            simulator = OfflineTestingStep(self._context.project_root, config=config)
+            result = simulator.run()
+        else:
+            failure_rate = min(0.5, 0.05 + rng.random() * 0.2)
+            simulator = CIStep(
+                self._context.project_root,
+                name=category,
+                pipelines=(category,),
+                seed=seed,
+                failure_rate=failure_rate,
+            )
+            result = simulator.run()
+
+        blocks = []
+        for artifact in result.artifacts:
+            content = artifact.read_text(encoding="utf-8")
+            blocks.append(self._format_block(self._relative_path(artifact), content))
+
+        if not blocks:
+            summary = {
+                "status": result.status,
+                "category": category,
+                "prompt_hash": prompt_hash,
+            }
+            blocks.append(
+                self._format_block(
+                    f".douglas/state/{category}_summary.json",
+                    json.dumps(summary, indent=2) + "\n",
+                )
+            )
+
+        return "\n\n".join(blocks)
 
     # Generic helpers -------------------------------------------------------
     def _format_block(self, path: str, content: str) -> str:
