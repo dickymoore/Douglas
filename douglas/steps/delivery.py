@@ -392,7 +392,7 @@ def _ensure_readme_notes(readme_path: Path, stories: Sequence[DeliveryStory]) ->
         )
 
     if updated.endswith("\n\n"):
-        updated = updated[:-1]
+        updated = updated.rstrip('\n') + '\n'
 
     if updated == existing:
         return False
