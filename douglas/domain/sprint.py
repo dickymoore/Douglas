@@ -38,12 +38,12 @@ class Commitment:
         status = _normalize_str(data.get("status")) or "todo"
         owner = _normalize_str(data.get("owner"))
         estimate_value = data.get("estimate")
-        estimate: Optional[float]
+        parsed_estimate: Optional[float]
         if isinstance(estimate_value, (int, float)):
-            estimate = float(estimate_value)
+            parsed_estimate = float(estimate_value)
         else:
-            estimate = None
-        return cls(id=identifier, title=title, status=status, owner=owner, estimate=estimate)
+            parsed_estimate = None
+        return cls(id=identifier, title=title, status=status, owner=owner, estimate=parsed_estimate)
 
     def to_dict(self) -> Dict[str, object]:
         payload: Dict[str, object] = {
