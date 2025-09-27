@@ -362,7 +362,7 @@ def _module_name_from_rel(rel_path: str) -> str:
 def _ensure_readme_notes(readme_path: Path, stories: Sequence[DeliveryStory]) -> bool:
     entries = [
         f"- [ ] {story.display_id}: {story.title}"
-        for story in sorted(stories, key=DeliveryStory.sort_key)
+        for story in stories
     ]
     if not entries:
         return False
