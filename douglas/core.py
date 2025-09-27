@@ -1491,7 +1491,7 @@ class Douglas:
                     else None,
                 )
                 planning_result = planning_step.run_planning(planning_context)
-            except Exception as exc:  # pragma: no cover - defensive guard
+            except Exception as exc:
                 logger.exception("Sprint planning step failed", exc_info=exc)
                 planning_result = planning_step.PlanningStepResult(
                     executed=False,
