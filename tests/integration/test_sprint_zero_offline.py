@@ -18,7 +18,7 @@ from douglas.providers.replay_provider import (
 )
 from douglas.steps.sprint_zero import SprintZeroContext, run_sprint_zero
 
-from tests.integration.test_offline_sprint_zero import _prepare_project
+# _prepare_project is defined in this file or should be; removed erroneous import
 
 
 def _load_project_metadata(project_dir: Path) -> tuple[str, str, int, dict]:
