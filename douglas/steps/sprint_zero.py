@@ -94,7 +94,7 @@ class StepResult:
     prompt: str
     prompt_hash: str
     seed: int
-    raw_response: str | None = None
+    raw_response: Optional[str] = None
 
     def persist(self, project_root: Path) -> None:
         for relative_path, content in self.artifacts.items():
