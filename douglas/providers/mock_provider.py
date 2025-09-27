@@ -10,6 +10,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from douglas.domain.backlog import (
+    Epic,
+    Feature,
+    Story,
+    render_backlog_markdown,
+    serialize_backlog,
+)
 from douglas.domain.step_result import StepResult
 from douglas.providers.llm_provider import LLMProvider
 
@@ -37,7 +44,7 @@ def _derive_seed(
     return int(digest[:16], 16)
 
 
-def _slugify(text: str, length: int = 8) -> str:
+def _slugify_id(text: str, length: int = 8) -> str:
     cleaned = [ch for ch in text.lower() if ch.isalnum()]
     slug = "".join(cleaned)[:length]
     if slug:
@@ -54,7 +61,7 @@ class _MockContext:
     base_seed: int
 
     def workspace_dir(self) -> Path:
-        slug = _slugify(f"{self.agent_label}-{self.step_name}")
+        slug = _slugify_id(f"{self.agent_label}-{self.step_name}")
         workspace = self.project_root / ".douglas" / "workspaces" / slug
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
@@ -88,7 +95,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             adjective = adjectives[(idx + rng.randrange(len(adjectives))) % len(adjectives)]
             artifact = artifacts[(idx + rng.randrange(len(artifacts))) % len(artifacts)]
             title = f"{adjective.title()} {artifact.title()} polish"
-            entry_id = f"mock-{_slugify(title, 10)}"
+            entry_id = f"mock-{_slugify_id(title, 10)}"
             entries.append(
                 {
                     "id": entry_id,
@@ -480,6 +487,8 @@ class _ContextualDeterministicMockProvider(LLMProvider):
 
     def generate_code(self, prompt: str) -> str:
         step = self._context.step_name.lower()
+        if step == "sprint_zero":
+            return self._sprint_zero_output(prompt)
         if step == "plan":
             return self._plan_output(prompt)
         if step == "generate":
@@ -491,6 +500,180 @@ class _ContextualDeterministicMockProvider(LLMProvider):
         return (
             "Offline mock provider executed without generating edits."
         )
+
+    def _sprint_zero_output(self, prompt: str) -> str:
+        prompt_hash = _hash_prompt(prompt)
+        seed = _derive_seed(
+            self._context.base_seed,
+            self._context.agent_label,
+            self._context.step_name,
+            prompt_hash,
+        )
+        rng = random.Random(seed)
+
+        epic_models: List[Epic] = []
+        feature_models: List[Feature] = []
+        story_models: List[Story] = []
+
+        themes = [
+            "platform enablement",
+            "developer experience",
+            "quality insights",
+            "release confidence",
+            "user onboarding",
+        ]
+        descriptors = [
+            "resilient",
+            "delightful",
+            "accessible",
+            "collaborative",
+            "automated",
+            "auditable",
+        ]
+        capabilities = [
+            "analytics",
+            "workflow",
+            "observability",
+            "documentation",
+            "security",
+            "feedback",
+        ]
+        outcomes = [
+            "dashboard",
+            "pipeline",
+            "playbook",
+            "portal",
+            "insights",
+            "reporting",
+        ]
+        personas = [
+            "developer",
+            "tester",
+            "operator",
+            "stakeholder",
+            "customer",
+        ]
+        actions = [
+            "track",
+            "validate",
+            "share",
+            "configure",
+            "monitor",
+            "experiment with",
+        ]
+
+        epic_count = 3
+        features_per_epic = 2
+        stories_per_feature = 2
+
+        for epic_index in range(epic_count):
+            theme = themes[(epic_index + rng.randrange(len(themes))) % len(themes)]
+            descriptor = descriptors[(epic_index + rng.randrange(len(descriptors))) % len(descriptors)]
+            epic_title = f"{descriptor.title()} {theme.title()} Initiative"
+            epic_id = f"EP-{_slugify_id(epic_title, 10)}"
+            epic_description = (
+                f"Deliver a {descriptor} {theme} experience for early project alignment."
+            )
+            epic_models.append(
+                Epic(
+                    identifier=epic_id,
+                    title=epic_title,
+                    description=epic_description,
+                )
+            )
+
+            for feature_offset in range(features_per_epic):
+                capability = capabilities[
+                    (feature_offset + rng.randrange(len(capabilities)))
+                    % len(capabilities)
+                ]
+                outcome = outcomes[
+                    (feature_offset + rng.randrange(len(outcomes))) % len(outcomes)
+                ]
+                feature_title = f"{capability.title()} {outcome.title()}"
+                feature_id = f"FT-{_slugify_id(feature_title + epic_id, 10)}"
+                feature_description = (
+                    f"Provide {capability} capabilities through a {outcome} focused on {theme}."
+                )
+                feature_models.append(
+                    Feature(
+                        identifier=feature_id,
+                        title=feature_title,
+                        epic_id=epic_id,
+                        description=feature_description,
+                        acceptance_criteria=(
+                            f"Supports {theme} objectives",
+                            f"Improves {descriptor} metrics",
+                        ),
+                    )
+                )
+
+                for story_offset in range(stories_per_feature):
+                    persona = personas[
+                        (story_offset + rng.randrange(len(personas))) % len(personas)
+                    ]
+                    action = actions[
+                        (story_offset + rng.randrange(len(actions))) % len(actions)
+                    ]
+                    story_title = (
+                        f"As a {persona}, I want to {action} the {outcome} outcomes."
+                    )
+                    story_id = f"ST-{_slugify_id(story_title + feature_id, 12)}"
+                    story_description = (
+                        f"Enable the {persona} persona to {action} the {outcome} produced by {feature_title}."
+                    )
+                    story_models.append(
+                        Story(
+                            identifier=story_id,
+                            title=story_title,
+                            feature_id=feature_id,
+                            description=story_description,
+                            acceptance_criteria=(
+                                f"{persona.title()} can {action} without assistance",
+                                f"{outcome.title()} data is captured for analytics",
+                            ),
+                        )
+                    )
+
+        backlog_dict = serialize_backlog(epic_models, feature_models, story_models)
+        backlog_json = json.dumps(backlog_dict, indent=2, sort_keys=True) + "\n"
+        backlog_markdown = render_backlog_markdown(
+            self._context.project_root.name,
+            epic_models,
+            feature_models,
+            story_models,
+        )
+        ci_stub = textwrap.dedent(
+            """name: Sprint Zero CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Sprint Zero placeholder
+        run: echo \"Sprint Zero generated initial workflow\"
+"""
+        )
+
+        payload = {
+            "epics": backlog_dict["epics"],
+            "features": backlog_dict["features"],
+            "stories": backlog_dict["stories"],
+            "artifacts": {
+                ".douglas/state/backlog.json": backlog_json,
+                "ai-inbox/backlog.md": backlog_markdown,
+                ".github/workflows/app.yml": ci_stub,
+            },
+            "metadata": {
+                "seed": seed,
+                "prompt_hash": prompt_hash,
+            },
+        }
+        return json.dumps(payload, indent=2, sort_keys=True)
 
 
 class DeterministicMockProvider(LLMProvider):
@@ -519,4 +702,3 @@ class DeterministicMockProvider(LLMProvider):
         raise RuntimeError(
             "DeterministicMockProvider requires contextualisation via with_context()."
         )
-
