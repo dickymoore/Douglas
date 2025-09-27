@@ -65,7 +65,7 @@ def test_sprint_planning_is_deterministic(tmp_path, monkeypatch):
     except (TypeError, ValueError):
         planning_seed = 0
 
-    items_per_sprint = int(plan_data.get("items_requested", 0) or 0)
+    items_per_sprint = int(plan_data.get("items_requested", 0))
 
     rerun_context = planning_step.PlanningContext(
         project_root=project_dir,
