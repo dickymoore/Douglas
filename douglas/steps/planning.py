@@ -109,7 +109,7 @@ def _relative_path(path: Path, project_root: Path) -> str:
 def _selection_seed(seed: int, sprint_index: int, signature: Optional[str]) -> int:
     material = f"{seed}:{sprint_index}:{signature or ''}".encode("utf-8")
     digest = hashlib.sha256(material).hexdigest()
-    return int(digest[:16], 16)
+    return int(digest, 16)
 
 
 def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str], str]:
