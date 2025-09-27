@@ -13,12 +13,7 @@ from douglas.domain.metrics import Coverage, PassFailCounts, VelocityInputs
 from douglas.steps import StepResult
 
 
-from douglas.steps.utils import _derive_seed
-
-
-def _normalise_range(values: Sequence[float]) -> tuple[float, float]:
-    if len(values) != 2:
-        raise ValueError("coverage_range must contain exactly two numbers")
+from douglas.utils import _derive_seed
     low, high = sorted(float(v) for v in values)
     return low, high
 
