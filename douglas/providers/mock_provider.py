@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from douglas.domain.step_result import StepResult
 from douglas.providers.llm_provider import LLMProvider
 
 
@@ -443,6 +444,39 @@ class _ContextualDeterministicMockProvider(LLMProvider):
         except ValueError:
             relative = path
         return relative.as_posix()
+
+    def generate_step_result(
+        self,
+        prompt: str,
+        *,
+        step_name: str | None = None,
+        agent: str | None = None,
+        role: str | None = None,
+        seed: int | None = None,
+        prompt_hash: str | None = None,
+        timestamps: dict | None = None,
+    ) -> StepResult:
+        resolved_step = step_name or self._context.step_name
+        resolved_agent = agent or self._context.agent_label
+        resolved_role = role or self._context.agent_label
+        prompt_digest = prompt_hash or _hash_prompt(prompt)
+        derived_seed = seed
+        if derived_seed is None:
+            derived_seed = _derive_seed(
+                self._context.base_seed,
+                resolved_agent,
+                resolved_step,
+                prompt_digest,
+            )
+        return super().generate_step_result(
+            prompt,
+            step_name=resolved_step,
+            agent=resolved_agent,
+            role=resolved_role,
+            seed=derived_seed,
+            prompt_hash=prompt_digest,
+            timestamps=timestamps,
+        )
 
     def generate_code(self, prompt: str) -> str:
         step = self._context.step_name.lower()

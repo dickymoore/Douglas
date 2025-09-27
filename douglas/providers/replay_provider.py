@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Mapping, Optional, Tuple
 
 from douglas import __version__
+from douglas.domain.step_result import StepResult
 from douglas.providers.llm_provider import LLMProvider
 
 
@@ -334,6 +335,36 @@ class _ReplayContextProvider(LLMProvider):
         self._fingerprint = fingerprint
         self._base_seed = base_seed
 
+    def generate_step_result(
+        self,
+        prompt: str,
+        *,
+        step_name: str | None = None,
+        agent: str | None = None,
+        role: str | None = None,
+        seed: int | None = None,
+        prompt_hash: str | None = None,
+        timestamps: Mapping[str, object] | None = None,
+    ) -> StepResult:
+        prompt_digest = prompt_hash or _hash_prompt(prompt)
+        derived_seed = seed
+        if derived_seed is None:
+            derived_seed = derive_context_seed(
+                self._base_seed, self._agent_label, self._step_name, prompt_digest
+            )
+        resolved_step = step_name or self._step_name
+        resolved_agent = agent or self._agent_label
+        resolved_role = role or self._agent_label
+        return super().generate_step_result(
+            prompt,
+            step_name=resolved_step,
+            agent=resolved_agent,
+            role=resolved_role,
+            seed=derived_seed,
+            prompt_hash=prompt_digest,
+            timestamps=timestamps,
+        )
+
     def generate_code(self, prompt: str) -> str:
         prompt_hash = _hash_prompt(prompt)
         seed = derive_context_seed(
@@ -428,25 +459,71 @@ class _RecordingContextProvider(LLMProvider):
         self._agent_label = agent_label
         self._step_name = step_name
 
-    def generate_code(self, prompt: str) -> str:
-        prompt_hash = _hash_prompt(prompt)
-        seed = derive_context_seed(
-            self._base_seed, self._agent_label, self._step_name, prompt_hash
-        )
-        response = self._base.generate_code(prompt)
-        if not isinstance(response, str):
-            return response
+    def generate_step_result(
+        self,
+        prompt: str,
+        *,
+        step_name: str | None = None,
+        agent: str | None = None,
+        role: str | None = None,
+        seed: int | None = None,
+        prompt_hash: str | None = None,
+        timestamps: Mapping[str, object] | None = None,
+    ) -> StepResult:
+        prompt_digest = prompt_hash or _hash_prompt(prompt)
+        derived_seed = seed
+        if derived_seed is None:
+            derived_seed = derive_context_seed(
+                self._base_seed, self._agent_label, self._step_name, prompt_digest
+            )
+        resolved_step = step_name or self._step_name
+        resolved_agent = agent or self._agent_label
+        resolved_role = role or self._agent_label
+
+        if hasattr(self._base, "generate_step_result"):
+            base_result = getattr(self._base, "generate_step_result")(
+                prompt,
+                step_name=resolved_step,
+                agent=resolved_agent,
+                role=resolved_role,
+                seed=derived_seed,
+                prompt_hash=prompt_digest,
+                timestamps=timestamps,
+            )
+            result = StepResult.ensure(
+                base_result,
+                step_name=resolved_step,
+                agent=resolved_agent,
+                role=resolved_role,
+                seed=derived_seed,
+                prompt_hash=prompt_digest,
+                prompt=prompt,
+                timestamps=timestamps,
+            )
+        else:
+            response = self._base.generate_code(prompt)
+            result = StepResult.ensure(
+                response,
+                step_name=resolved_step,
+                agent=resolved_agent,
+                role=resolved_role,
+                seed=derived_seed,
+                prompt_hash=prompt_digest,
+                prompt=prompt,
+                timestamps=timestamps,
+            )
 
         key = CassetteKey(
             provider=self._provider_name,
             model=self._model_name,
-            role=self._agent_label,
-            step=self._step_name,
-            agent_id=self._agent_label,
+            role=resolved_agent,
+            step=resolved_step,
+            agent_id=resolved_agent,
             project_fingerprint=self._fingerprint,
-            prompt_hash=prompt_hash,
-            seed=seed,
+            prompt_hash=prompt_digest,
+            seed=derived_seed,
         )
+
         record = {
             "version": "1",
             "key": key.as_dict(),
@@ -457,7 +534,8 @@ class _RecordingContextProvider(LLMProvider):
                 "python": sys.version,
             },
             "output": {
-                "text": response,
+                "text": self._render_legacy_text(result),
+                "result": result.to_dict(),
                 "notes": [
                     {
                         "level": "info",
@@ -466,15 +544,33 @@ class _RecordingContextProvider(LLMProvider):
                 ],
             },
         }
+
         existing = self._store.lookup(key)
         if existing:
-            existing_text = (
-                existing.get("output", {}).get("text")
-                if isinstance(existing.get("output"), Mapping)
-                else None
-            )
-            if existing_text == response:
-                return response
+            existing_output = existing.get("output", {})
+            if isinstance(existing_output, Mapping):
+                existing_result = existing_output.get("result")
+                if existing_result == record["output"]["result"]:
+                    return result
+
         self._store.record(key, record)
-        return response
+        return result
+
+    def generate_code(self, prompt: str) -> str:
+        result = self.generate_step_result(prompt)
+        return self._render_legacy_text(result)
+
+    def _render_legacy_text(self, result: StepResult) -> str:
+        for event in reversed(result.events):
+            message = event.message
+            if isinstance(message, str) and message:
+                return message
+        if result.artifacts:
+            blocks = []
+            for artifact in result.artifacts:
+                blocks.append(
+                    f"```{artifact.path}\n{artifact.content.rstrip()}\n```"
+                )
+            return "\n\n".join(blocks)
+        return json.dumps(result.to_dict(), sort_keys=True)
 
