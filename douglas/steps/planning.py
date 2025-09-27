@@ -7,7 +7,7 @@ from typing import Dict, List, Mapping, Optional, Sequence
 
 from douglas.logging_utils import get_logger
 
-__all__ = ["Commitment", "filter_commitments", "_filter_commitments"]
+__all__ = ["Commitment", "filter_commitments"]
 
 
 logger = get_logger(__name__)
