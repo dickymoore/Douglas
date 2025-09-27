@@ -23,8 +23,6 @@ def _normalise_range(values: Sequence[float]) -> tuple[float, float]:
     if len(values) != 2:
         raise ValueError("coverage_range must contain exactly two numbers")
     low, high = sorted(float(v) for v in values)
-    if low == high:
-        return low, high
     return low, high
 
 
