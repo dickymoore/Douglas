@@ -165,6 +165,7 @@ class CassetteStore:
         # Sort cassette files in reverse order so that newer recordings (with higher numeric suffixes)
         # are processed first. This ensures that newer recordings take precedence over older ones
         # when populating the index.
+        # The sort key (_cassette_sort_key) sorts by filename prefix and numeric suffix (e.g., "foo-2" > "foo-1").
         for path in sorted(
             self.directory.glob("*.jsonl"), key=_cassette_sort_key, reverse=True
         ):
