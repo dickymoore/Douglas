@@ -140,6 +140,7 @@ def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str]
 
 
 def _sanitize_log_value(value: object) -> str:
+    """Sanitize a value for safe logging by removing control characters."""
     text = str(value)
     sanitized_chars = []
     for char in text:
@@ -149,6 +150,38 @@ def _sanitize_log_value(value: object) -> str:
         else:
             sanitized_chars.append(char)
     return "".join(sanitized_chars)
+
+
+def _coerce_string(value: Optional[object]) -> str:
+    """Convert a value to a string, handling None gracefully."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _normalize_multiline(value: Optional[object]) -> str:
+    """Normalize multiline text from various input formats."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return "\n".join(_coerce_string(part) for part in value if part is not None)
+    return str(value).strip()
+
+
+def _summarize_commitment(data: Mapping[str, object]) -> str:
+    """Generate a safe summary string for a commitment mapping."""
+    identifier = _coerce_string(
+        data.get("id")
+        or data.get("commitment_id")
+        or data.get("reference")
+        or data.get("title")
+        or data.get("name")
+    )
+    return identifier or "<unknown>"
 
 
 def _normalize_fallback_items(
@@ -209,71 +242,14 @@ def _extract_fallback_items(
 
 
 def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
+    """Filter and convert backlog items to valid commitments."""
     commitments: List[Commitment] = []
     for item in items:
         if not isinstance(item, Mapping):
+            logger.warning("Skipping non-mapping commitment at index")
             continue
         normalized: Dict[str, object] = dict(item)
         status = str(normalized.get("status", "")).strip().lower()
-=======
-    "completed",
-    "complete",
-    "cancelled",
-    "canceled",
-    "duplicate",
-    "won't do",
-    "wont_do",
-    "won't_do",
-    "wont do",
-    "obsolete",
-    "archived",
-}
-
-
-@dataclass(frozen=True)
-class Commitment:
-    """Serializable representation of a planning commitment entry."""
-
-    identifier: str
-    title: str
-    status: str = ""
-    description: str = ""
-
-    @classmethod
-    def from_mapping(cls, payload: Mapping[str, object]) -> "Commitment":
-        """Create a commitment from a mapping, validating required fields."""
-
-        title = _coerce_string(payload.get("title"))
-        if not title:
-            title = _coerce_string(payload.get("name"))
-        if not title:
-            raise ValueError("commitment requires a title")
-
-        identifier = _coerce_string(
-            payload.get("id")
-            or payload.get("commitment_id")
-            or payload.get("ref")
-            or payload.get("reference")
-        )
-
-        status = _coerce_string(payload.get("status"))
-        description_value = payload.get("description")
-        description = _normalize_multiline(description_value)
-
-        return cls(identifier=identifier, title=title, status=status, description=description)
-
-
-def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
-    """Return valid commitments, logging when items are discarded."""
-
-    commitments: List[Commitment] = []
-    for index, item in enumerate(items):
-        if not isinstance(item, Mapping):
-            logger.warning("Skipping non-mapping commitment at index %d", index)
-            continue
-        normalized: Dict[str, object] = dict(item)
-        status = _coerce_string(normalized.get("status")).lower()
->>>>>>> main
         if status in _SKIPPED_STATUSES:
             continue
         try:
@@ -281,7 +257,6 @@ def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitmen
                 normalized["title"] = normalized["name"]
             commitment = Commitment.from_mapping(normalized)
         except ValueError as exc:
-<<<<<<< HEAD
             item_reference = (
                 normalized.get("id")
                 or normalized.get("external_id")
@@ -290,24 +265,15 @@ def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitmen
                 or "<unknown>"
             )
             logger.warning(
-                "Skipping backlog item %s due to invalid commitment data: %s",
+                "Skipping invalid commitment %s: %s",
                 _sanitize_log_value(item_reference),
                 _sanitize_log_value(exc),
-=======
-            summary = _summarize_commitment(normalized)
-            logger.warning(
-                "Skipping invalid commitment at index %d (%s): %s",
-                index,
-                summary,
-                exc,
->>>>>>> main
             )
             continue
         commitments.append(commitment)
     return commitments
 
 
-<<<<<<< HEAD
 def _select_commitments(
     candidates: List[Commitment],
     seed: int,
@@ -473,40 +439,9 @@ def run_planning(context: PlanningContext) -> PlanningStepResult:
     )
 
 
-__all__ = ["PlanningContext", "PlanningStepResult", "run_planning"]
-=======
 def filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
     """Public wrapper around :func:`_filter_commitments`."""
-
     return _filter_commitments(items)
 
 
-def _coerce_string(value: Optional[object]) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.strip()
-    return str(value).strip()
-
-
-def _normalize_multiline(value: Optional[object]) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
-        return "\n".join(_coerce_string(part) for part in value if part is not None)
-    return str(value).strip()
-
-
-def _summarize_commitment(data: Mapping[str, object]) -> str:
-    identifier = _coerce_string(
-        data.get("id")
-        or data.get("commitment_id")
-        or data.get("reference")
-        or data.get("title")
-        or data.get("name")
-    )
-    return identifier or "<unknown>"
-
->>>>>>> main
+__all__ = ["PlanningContext", "PlanningStepResult", "run_planning", "filter_commitments"]

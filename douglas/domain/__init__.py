@@ -1,4 +1,4 @@
-"""Domain models for Sprint Zero backlog primitives."""
+"""Domain models for Douglas workflows."""
 
 from .backlog import (
     Epic,
@@ -7,6 +7,8 @@ from .backlog import (
     render_backlog_markdown,
     serialize_backlog,
 )
+from .metrics import Coverage, PassFailCounts, VelocityInputs
+from .sprint import Commitment, SprintPlan
 
 __all__ = [
     "Epic",
@@ -14,4 +16,9 @@ __all__ = [
     "Story",
     "render_backlog_markdown",
     "serialize_backlog",
+    "Coverage",
+    "PassFailCounts",
+    "VelocityInputs",
+    "Commitment",
+    "SprintPlan",
 ]
