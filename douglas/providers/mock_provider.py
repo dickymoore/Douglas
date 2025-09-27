@@ -44,7 +44,7 @@ def _derive_seed(
     return int(digest[:16], 16)
 
 
-def _slugify(text: str, length: int = 8) -> str:
+def _slugify_text(text: str, length: int = 8) -> str:
     cleaned = [ch for ch in text.lower() if ch.isalnum()]
     slug = "".join(cleaned)[:length]
     if slug:
@@ -61,7 +61,7 @@ class _MockContext:
     base_seed: int
 
     def workspace_dir(self) -> Path:
-        slug = _slugify(f"{self.agent_label}-{self.step_name}")
+        slug = _slugify_text(f"{self.agent_label}-{self.step_name}")
         workspace = self.project_root / ".douglas" / "workspaces" / slug
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
@@ -95,7 +95,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             adjective = adjectives[(idx + rng.randrange(len(adjectives))) % len(adjectives)]
             artifact = artifacts[(idx + rng.randrange(len(artifacts))) % len(artifacts)]
             title = f"{adjective.title()} {artifact.title()} polish"
-            entry_id = f"mock-{_slugify(title, 10)}"
+            entry_id = f"mock-{_slugify_text(title, 10)}"
             entries.append(
                 {
                     "id": entry_id,
@@ -570,7 +570,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             theme = themes[(epic_index + rng.randrange(len(themes))) % len(themes)]
             descriptor = descriptors[(epic_index + rng.randrange(len(descriptors))) % len(descriptors)]
             epic_title = f"{descriptor.title()} {theme.title()} Initiative"
-            epic_id = f"EP-{_slugify(epic_title, 10)}"
+            epic_id = f"EP-{_slugify_text(epic_title, 10)}"
             epic_description = (
                 f"Deliver a {descriptor} {theme} experience for early project alignment."
             )
@@ -591,7 +591,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
                     (feature_offset + rng.randrange(len(outcomes))) % len(outcomes)
                 ]
                 feature_title = f"{capability.title()} {outcome.title()}"
-                feature_id = f"FT-{_slugify(feature_title + epic_id, 10)}"
+                feature_id = f"FT-{_slugify_text(feature_title + epic_id, 10)}"
                 feature_description = (
                     f"Provide {capability} capabilities through a {outcome} focused on {theme}."
                 )
@@ -618,7 +618,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
                     story_title = (
                         f"As a {persona}, I want to {action} the {outcome} outcomes."
                     )
-                    story_id = f"ST-{_slugify(story_title + feature_id, 12)}"
+                    story_id = f"ST-{_slugify_text(story_title + feature_id, 12)}"
                     story_description = (
                         f"Enable the {persona} persona to {action} the {outcome} produced by {feature_title}."
                     )
