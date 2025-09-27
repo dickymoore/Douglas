@@ -140,6 +140,7 @@ def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str]
 
 
 def _sanitize_log_value(value: object) -> str:
+    """Sanitize a value for safe logging by removing control characters."""
     text = str(value)
     sanitized_chars = []
     for char in text:
@@ -149,6 +150,38 @@ def _sanitize_log_value(value: object) -> str:
         else:
             sanitized_chars.append(char)
     return "".join(sanitized_chars)
+
+
+def _coerce_string(value: Optional[object]) -> str:
+    """Convert a value to a string, handling None gracefully."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _normalize_multiline(value: Optional[object]) -> str:
+    """Normalize multiline text from various input formats."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        return "\n".join(_coerce_string(part) for part in value if part is not None)
+    return str(value).strip()
+
+
+def _summarize_commitment(data: Mapping[str, object]) -> str:
+    """Generate a safe summary string for a commitment mapping."""
+    identifier = _coerce_string(
+        data.get("id")
+        or data.get("commitment_id")
+        or data.get("reference")
+        or data.get("title")
+        or data.get("name")
+    )
+    return identifier or "<unknown>"
 
 
 def _normalize_fallback_items(
@@ -209,6 +242,7 @@ def _extract_fallback_items(
 
 
 def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
+    """Filter and convert backlog items to valid commitments."""
     commitments: List[Commitment] = []
     for item in items:
         if not isinstance(item, Mapping):
@@ -237,7 +271,6 @@ def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitmen
             continue
         commitments.append(commitment)
     return commitments
-
 
 
 def _select_commitments(

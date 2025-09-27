@@ -8,8 +8,16 @@ import random
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
+from douglas.domain.backlog import (
+    Epic,
+    Feature,
+    Story,
+    render_backlog_markdown,
+    serialize_backlog,
+)
+from douglas.domain.step_result import StepResult
 from douglas.providers.llm_provider import LLMProvider
 from douglas.steps.ci import CIStep
 from douglas.steps.testing import OfflineTestingConfig, OfflineTestingStep
@@ -48,7 +56,7 @@ def _derive_seed(
     return int(digest[:16], 16)
 
 
-def _slugify(text: str, length: int = 8) -> str:
+def _slugify_text(text: str, length: int = 8) -> str:
     cleaned = [ch for ch in text.lower() if ch.isalnum()]
     slug = "".join(cleaned)[:length]
     if slug:
@@ -65,7 +73,7 @@ class _MockContext:
     base_seed: int
 
     def workspace_dir(self) -> Path:
-        slug = _slugify(f"{self.agent_label}-{self.step_name}")
+        slug = _slugify_text(f"{self.agent_label}-{self.step_name}")
         workspace = self.project_root / ".douglas" / "workspaces" / slug
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
@@ -99,7 +107,7 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             adjective = adjectives[(idx + rng.randrange(len(adjectives))) % len(adjectives)]
             artifact = artifacts[(idx + rng.randrange(len(artifacts))) % len(artifacts)]
             title = f"{adjective.title()} {artifact.title()} polish"
-            entry_id = f"mock-{_slugify(title, 10)}"
+            entry_id = f"mock-{_slugify_text(title, 10)}"
             entries.append(
                 {
                     "id": entry_id,
@@ -207,6 +215,74 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             )
 
         return [md_block, json_block, *work_blocks]
+
+    def _extract_plan_payload(self, prompt: str) -> Optional[Dict[str, object]]:
+        start = prompt.find("<plan-data>")
+        end = prompt.find("</plan-data>")
+        if start == -1 or end == -1 or end <= start:
+            return None
+        block = prompt[start + len("<plan-data>") : end].strip()
+        if not block:
+            return None
+        try:
+            payload = json.loads(block)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(payload, Dict):
+            return payload
+        if isinstance(payload, Mapping):
+            return dict(payload)
+        return None
+
+    def _planning_summary(self, prompt: str) -> str:
+        payload = self._extract_plan_payload(prompt) or {}
+        sprint_value = payload.get("sprint")
+        try:
+            sprint_label = int(sprint_value)
+        except (TypeError, ValueError):
+            sprint_label = 0
+
+        goals_raw = payload.get("goals")
+        if isinstance(goals_raw, Sequence):
+            goals = [str(goal).strip() for goal in goals_raw if goal is not None]
+        else:
+            goals = []
+
+        commitments_raw = payload.get("commitments")
+        commitments: List[Dict[str, object]] = []
+        if isinstance(commitments_raw, Sequence):
+            for item in commitments_raw:
+                if isinstance(item, Mapping):
+                    commitments.append({
+                        "id": str(item.get("id", "")).strip() or "(missing)",
+                        "title": str(item.get("title", "")).strip() or "Untitled work item",
+                        "status": str(item.get("status", "todo")).strip() or "todo",
+                        "owner": str(item.get("owner", "Unassigned")).strip() or "Unassigned",
+                    })
+
+        lines = [
+            f"## Mock Sprint {sprint_label or 'plan'} summary",
+            f"Seed: {self._context.base_seed}",
+            f"Agent: {self._context.agent_label}",
+            f"Step: {self._context.step_name}",
+        ]
+        if goals:
+            lines.append("")
+            lines.append("### Goals")
+            for goal in goals:
+                lines.append(f"- {goal}")
+        if commitments:
+            lines.append("")
+            lines.append("### Commitments")
+            for entry in commitments:
+                lines.append(
+                    f"- {entry['id']}: {entry['title']} "
+                    f"(status: {entry['status']}, owner: {entry['owner']})"
+                )
+        if not goals and not commitments:
+            lines.append("")
+            lines.append("_No backlog commitments available for this sprint._")
+        return "\n".join(lines).strip() + "\n"
 
     def _render_readme_section(self, existing: str, marker: str, slug: str) -> str:
         if marker in existing:
@@ -467,19 +543,281 @@ class _ContextualDeterministicMockProvider(LLMProvider):
             relative = path
         return relative.as_posix()
 
+    def generate_step_result(
+        self,
+        prompt: str,
+        *,
+        step_name: str | None = None,
+        agent: str | None = None,
+        role: str | None = None,
+        seed: int | None = None,
+        prompt_hash: str | None = None,
+        timestamps: dict | None = None,
+    ) -> StepResult:
+        resolved_step = step_name or self._context.step_name
+        resolved_agent = agent or self._context.agent_label
+        resolved_role = role or self._context.agent_label
+        prompt_digest = prompt_hash or _hash_prompt(prompt)
+        derived_seed = seed
+        if derived_seed is None:
+            derived_seed = _derive_seed(
+                self._context.base_seed,
+                resolved_agent,
+                resolved_step,
+                prompt_digest,
+            )
+        return super().generate_step_result(
+            prompt,
+            step_name=resolved_step,
+            agent=resolved_agent,
+            role=resolved_role,
+            seed=derived_seed,
+            prompt_hash=prompt_digest,
+            timestamps=timestamps,
+        )
+
     def generate_code(self, prompt: str) -> str:
         step = self._context.step_name.lower()
+        if step == "sprint_zero":
+            return self._sprint_zero_output(prompt)
         if step == "plan":
             return self._plan_output(prompt)
+        if step == "planning":
+            return self._planning_summary(prompt)
         if step == "generate":
             return self._generate_output(prompt)
         if step == "review":
             return self._review_output(prompt)
+        if step == "delivery":
+            return self._delivery_output(prompt)
         if step in {"lint", "typecheck", "security", "test"}:
             return self._ci_output(prompt, step)
         return (
             "Offline mock provider executed without generating edits."
         )
+
+    def _delivery_output(self, prompt: str) -> str:
+        metadata: Dict[str, str] = {}
+        for line in prompt.splitlines():
+            if ":" not in line:
+                continue
+            raw_key, raw_value = line.split(":", 1)
+            key = raw_key.strip().lower().replace("-", "_")
+            metadata[key] = raw_value.strip()
+
+        story_id = (metadata.get("story_id") or "story").strip() or "story"
+        story_title = (metadata.get("story_title") or story_id).strip() or story_id
+        provided_slug = (metadata.get("story_slug") or "").strip()
+        story_slug = provided_slug or _slugify_text(story_id or story_title, 12)
+        helper_path = metadata.get("helper_path") or f"delivery_helpers/{story_slug}.py"
+        test_path = metadata.get("test_path") or f"tests/delivery/test_{story_slug}.py"
+
+        display_id = story_id or story_slug
+        marker = f"{display_id}:{story_slug}"
+
+        helper_module = Path(helper_path).with_suffix("").as_posix().replace("/", ".")
+
+        helper_content = textwrap.dedent(
+            f"""\
+            \"\"\"Delivery helper for {story_title} ({display_id}).\"\"\"
+
+            from __future__ import annotations
+
+
+            def deliver_{story_slug}(note: str = \"ready\") -> str:
+                \"\"\"Return a deterministic marker for smoke tests.\"\"\"
+                normalized = note or \"ready\"
+                return \"{marker}:\" + normalized
+            """
+        ).strip() + "\n"
+
+        test_content = textwrap.dedent(
+            f"""\
+            from {helper_module} import deliver_{story_slug}
+
+
+            def test_deliver_{story_slug}_uses_story_marker() -> None:
+                assert deliver_{story_slug}(\"ok\") == \"{marker}:ok\"
+            """
+        ).strip() + "\n"
+
+        helper_block = self._format_block(helper_path, helper_content)
+        test_block = self._format_block(test_path, test_content)
+        return f"{helper_block}\n\n{test_block}"
+
+    def _sprint_zero_output(self, prompt: str) -> str:
+        prompt_hash = _hash_prompt(prompt)
+        seed = _derive_seed(
+            self._context.base_seed,
+            self._context.agent_label,
+            self._context.step_name,
+            prompt_hash,
+        )
+        rng = random.Random(seed)
+
+        epic_models: List[Epic] = []
+        feature_models: List[Feature] = []
+        story_models: List[Story] = []
+
+        themes = [
+            "platform enablement",
+            "developer experience",
+            "quality insights",
+            "release confidence",
+            "user onboarding",
+        ]
+        descriptors = [
+            "resilient",
+            "delightful",
+            "accessible",
+            "collaborative",
+            "automated",
+            "auditable",
+        ]
+        capabilities = [
+            "analytics",
+            "workflow",
+            "observability",
+            "documentation",
+            "security",
+            "feedback",
+        ]
+        outcomes = [
+            "dashboard",
+            "pipeline",
+            "playbook",
+            "portal",
+            "insights",
+            "reporting",
+        ]
+        personas = [
+            "developer",
+            "tester",
+            "operator",
+            "stakeholder",
+            "customer",
+        ]
+        actions = [
+            "track",
+            "validate",
+            "share",
+            "configure",
+            "monitor",
+            "experiment with",
+        ]
+
+        epic_count = 3
+        features_per_epic = 2
+        stories_per_feature = 2
+
+        for epic_index in range(epic_count):
+            theme = themes[(epic_index + rng.randrange(len(themes))) % len(themes)]
+            descriptor = descriptors[(epic_index + rng.randrange(len(descriptors))) % len(descriptors)]
+            epic_title = f"{descriptor.title()} {theme.title()} Initiative"
+            epic_id = f"EP-{_slugify_text(epic_title, 10)}"
+            epic_description = (
+                f"Deliver a {descriptor} {theme} experience for early project alignment."
+            )
+            epic_models.append(
+                Epic(
+                    identifier=epic_id,
+                    title=epic_title,
+                    description=epic_description,
+                )
+            )
+
+            for feature_offset in range(features_per_epic):
+                capability = capabilities[
+                    (feature_offset + rng.randrange(len(capabilities)))
+                    % len(capabilities)
+                ]
+                outcome = outcomes[
+                    (feature_offset + rng.randrange(len(outcomes))) % len(outcomes)
+                ]
+                feature_title = f"{capability.title()} {outcome.title()}"
+                feature_id = f"FT-{_slugify_text(feature_title + epic_id, 10)}"
+                feature_description = (
+                    f"Provide {capability} capabilities through a {outcome} focused on {theme}."
+                )
+                feature_models.append(
+                    Feature(
+                        identifier=feature_id,
+                        title=feature_title,
+                        epic_id=epic_id,
+                        description=feature_description,
+                        acceptance_criteria=(
+                            f"Supports {theme} objectives",
+                            f"Improves {descriptor} metrics",
+                        ),
+                    )
+                )
+
+                for story_offset in range(stories_per_feature):
+                    persona = personas[
+                        (story_offset + rng.randrange(len(personas))) % len(personas)
+                    ]
+                    action = actions[
+                        (story_offset + rng.randrange(len(actions))) % len(actions)
+                    ]
+                    story_title = (
+                        f"As a {persona}, I want to {action} the {outcome} outcomes."
+                    )
+                    story_id = f"ST-{_slugify_text(story_title + feature_id, 12)}"
+                    story_description = (
+                        f"Enable the {persona} persona to {action} the {outcome} produced by {feature_title}."
+                    )
+                    story_models.append(
+                        Story(
+                            identifier=story_id,
+                            title=story_title,
+                            feature_id=feature_id,
+                            description=story_description,
+                            acceptance_criteria=(
+                                f"{persona.title()} can {action} without assistance",
+                                f"{outcome.title()} data is captured for analytics",
+                            ),
+                        )
+                    )
+
+        backlog_dict = serialize_backlog(epic_models, feature_models, story_models)
+        backlog_json = json.dumps(backlog_dict, indent=2, sort_keys=True) + "\n"
+        backlog_markdown = render_backlog_markdown(
+            self._context.project_root.name,
+            epic_models,
+            feature_models,
+            story_models,
+        )
+        ci_stub = textwrap.dedent(
+            """name: Sprint Zero CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Sprint Zero placeholder
+        run: echo \"Sprint Zero generated initial workflow\"
+"""
+        )
+
+        payload = {
+            "epics": backlog_dict["epics"],
+            "features": backlog_dict["features"],
+            "stories": backlog_dict["stories"],
+            "artifacts": {
+                ".douglas/state/backlog.json": backlog_json,
+                "ai-inbox/backlog.md": backlog_markdown,
+                ".github/workflows/app.yml": ci_stub,
+            },
+            "metadata": {
+                "seed": seed,
+                "prompt_hash": prompt_hash,
+            },
+        }
+        return json.dumps(payload, indent=2, sort_keys=True)
 
 
 class DeterministicMockProvider(LLMProvider):
@@ -508,4 +846,3 @@ class DeterministicMockProvider(LLMProvider):
         raise RuntimeError(
             "DeterministicMockProvider requires contextualisation via with_context()."
         )
-
