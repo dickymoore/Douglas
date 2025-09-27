@@ -182,7 +182,7 @@ def _coerce_story(entry: DeliveryStory | Mapping[str, object]) -> Optional[Deliv
         title = f"Story {fallback_slug.replace('_', ' ').title()}"
 
     description = entry.get("description") or ""
-    if isinstance(description, Sequence) and not isinstance(description, (str, bytes)):
+    if isinstance(description, Sequence) and not isinstance(description, str):
         description = "\n".join(str(item) for item in description)
     description_text = str(description).strip()
 
