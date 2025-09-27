@@ -524,7 +524,7 @@ class Douglas:
         try:
             planning_context = self._build_planning_context(planning_config)
             result = planning_step.run_planning(planning_context)
-        except Exception as exc:  # pragma: no cover - defensive guard
+        except Exception as exc:
             logger.exception("Sprint planning refresh failed", exc_info=exc)
             return None
 
