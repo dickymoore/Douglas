@@ -246,6 +246,7 @@ def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitmen
     commitments: List[Commitment] = []
     for item in items:
         if not isinstance(item, Mapping):
+            logger.warning("Skipping non-mapping commitment at index")
             continue
         normalized: Dict[str, object] = dict(item)
         status = str(normalized.get("status", "")).strip().lower()
@@ -264,7 +265,7 @@ def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitmen
                 or "<unknown>"
             )
             logger.warning(
-                "Skipping backlog item %s due to invalid commitment data: %s",
+                "Skipping invalid commitment %s: %s",
                 _sanitize_log_value(item_reference),
                 _sanitize_log_value(exc),
             )

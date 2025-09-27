@@ -29,12 +29,21 @@ class Commitment:
     owner: Optional[str] = None
     estimate: Optional[float] = None
 
+    @property
+    def identifier(self) -> str:
+        """Backward compatibility property for accessing the id field."""
+        return self.id
+
     @classmethod
     def from_mapping(cls, data: Mapping[str, object]) -> "Commitment":
         identifier = _normalize_str(data.get("id"))
         if not identifier:
             raise ValueError("Commitment requires an 'id' field.")
-        title = _normalize_str(data.get("title")) or identifier
+
+        title = _normalize_str(data.get("title"))
+        if not title:
+            raise ValueError("Commitment requires a 'title' field.")
+
         status = _normalize_str(data.get("status")) or "todo"
         owner = _normalize_str(data.get("owner"))
         estimate_value = data.get("estimate")
