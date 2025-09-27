@@ -23,7 +23,7 @@ def _sanitize_type(commit_type: str) -> str:
 def _sanitize_scope(scope: Optional[str]) -> Optional[str]:
     if scope is None:
         return None
-    normalized = (scope or "").strip().lower()
+    normalized = str(scope or "").strip().lower()
     if not normalized:
         return None
     sanitized = _SCOPE_PATTERN.sub("-", normalized)
