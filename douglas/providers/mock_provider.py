@@ -15,6 +15,16 @@ from douglas.steps.ci import CIStep
 from douglas.steps.testing import OfflineTestingConfig, OfflineTestingStep
 
 
+# Coverage simulation configuration used to generate plausible percentage
+# bounds for offline unit test runs.
+_COVERAGE_BASE_MIN = 0.6
+_COVERAGE_BASE_VARIANCE = 0.15
+_COVERAGE_MAX_CAP = 0.98
+_COVERAGE_EXTRA_MIN = 0.05
+_COVERAGE_EXTRA_VARIANCE = 0.1
+_COVERAGE_PERCENT_SCALE = 100.0
+
+
 def _normalize_whitespace(value: str) -> str:
     collapsed = " ".join(value.strip().split())
     return collapsed
@@ -398,14 +408,20 @@ class _ContextualDeterministicMockProvider(LLMProvider):
         rng = random.Random(seed)
 
         if category == "test":
-            low = 0.6 + rng.random() * 0.15
-            high = min(0.98, low + 0.05 + rng.random() * 0.1)
+            low = _COVERAGE_BASE_MIN + rng.random() * _COVERAGE_BASE_VARIANCE
+            high = min(
+                _COVERAGE_MAX_CAP,
+                low + _COVERAGE_EXTRA_MIN + rng.random() * _COVERAGE_EXTRA_VARIANCE,
+            )
             config = OfflineTestingConfig(
                 seed=seed,
                 suite="unit",
                 test_count=6 + rng.randrange(5),
                 failure_rate=min(0.4, rng.random() * 0.25),
-                coverage_range=(low * 100, high * 100),
+                coverage_range=(
+                    low * _COVERAGE_PERCENT_SCALE,
+                    high * _COVERAGE_PERCENT_SCALE,
+                ),
             )
             simulator = OfflineTestingStep(self._context.project_root, config=config)
             result = simulator.run()

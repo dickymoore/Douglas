@@ -19,12 +19,12 @@ def _derive_seed(base_seed: int, name: str) -> int:
     return int(digest[:16], 16)
 
 
-def _normalise_range(values: Sequence[float]) -> tuple[float, float]:
-    """Validate and normalise coverage percentage ranges.
+def _normalize_range(values: Sequence[float]) -> tuple[float, float]:
+    """Validate and normalize coverage percentage ranges.
 
     The simulator expects coverage ranges expressed as percentages between
     ``0`` and ``100``. Callers can provide either ``int`` or ``float`` values
-    and the order is normalised.
+    and the order is normalized.
     """
 
     if len(values) != 2:
@@ -67,7 +67,7 @@ class OfflineTestingStep:
             raise ValueError("test_count must be positive")
         if not 0 <= self.config.failure_rate <= 1:
             raise ValueError("failure_rate must be between 0 and 1")
-        self.coverage_range = _normalise_range(self.config.coverage_range)
+        self.coverage_range = _normalize_range(self.config.coverage_range)
         self._state_dir = self.project_root / ".douglas" / "state"
         self._ci_dir = self.project_root / "ai-inbox" / "ci"
 
