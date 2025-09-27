@@ -13,7 +13,7 @@ _WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
 def _sanitize_type(commit_type: str) -> str:
-    normalized = (commit_type or "").strip().lower()
+    normalized = str(commit_type).strip().lower()
     sanitized = _SCOPE_PATTERN.sub("", normalized)
     if not sanitized:
         raise ValueError("commit type must contain alphabetic characters")
