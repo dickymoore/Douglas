@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 import textwrap
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 import yaml
 
 from douglas.providers.llm_provider import LLMProvider
+from douglas.utils import slugify_token
 from douglas.vcs.commits import format_conventional_commit
 
 __all__ = ["DeliveryContext", "DeliveryStory", "StepResult", "run_delivery"]
@@ -30,11 +30,7 @@ _CODE_BLOCK_PATTERN = re.compile(r"```(?P<path>[^\n`]+)\n(?P<body>.*?)```", re.D
 
 
 def _slugify(value: str) -> str:
-    normalized = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
-    if normalized:
-        return normalized
-    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
-    return digest[:10]
+    return slugify_token(value, separator="_", fallback_hash_len=10)
 
 
 @dataclass(frozen=True)
