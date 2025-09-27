@@ -1334,8 +1334,9 @@ class Douglas:
             if self._pending_sprint_plan_refresh:
                 planning_config = self.config.get("planning") or {}
                 if planning_config.get("enabled", True):
-                    self._refresh_sprint_plan(planning_config)
-                self._pending_sprint_plan_refresh = False
+                    refresh_succeeded = self._refresh_sprint_plan(planning_config)
+                    if refresh_succeeded:
+                        self._pending_sprint_plan_refresh = False
             return StepExecutionResult(
                 True, changes_applied, override_event, already_recorded
             )
