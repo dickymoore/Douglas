@@ -1,890 +1,890 @@
-"""Utilities for generating deterministic sprint planning artifacts."""<<<<<<< HEAD
+"""Utilities for generating deterministic sprint planning artifacts.""""""Utilities for generating deterministic sprint planning artifacts."""
 
-"""Utilities for generating deterministic sprint planning artifacts."""
 
-from __future__ import annotations
 
-from __future__ import annotations
+from __future__ import annotationsfrom __future__ import annotations
 
-import hashlib
 
-import jsonimport hashlib
 
-import randomimport json
+import hashlibimport hashlib
 
-import textwrapimport logging
+import jsonimport json
 
-from dataclasses import dataclassimport random
+import randomimport random
 
-from datetime import datetimeimport textwrap
+import textwrapimport textwrap
 
-from pathlib import Pathfrom dataclasses import dataclass
+from dataclasses import dataclassfrom dataclasses import dataclass
 
-from typing import Dict, Iterable, List, Mapping, Optional, Sequencefrom datetime import datetime
+from datetime import datetimefrom datetime import datetime
 
-from pathlib import Path
+from pathlib import Pathfrom pathlib import Path
 
-from douglas.domain.sprint import Commitment, SprintPlanfrom typing import Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Dict, Iterable, List, Mapping, Optional, Sequencefrom typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
-from douglas.logging_utils import get_logger
 
-from douglas.providers.llm_provider import LLMProviderfrom douglas.domain.sprint import Commitment, SprintPlan
 
-from douglas.providers.llm_provider import LLMProvider
+from douglas.domain.sprint import Commitment, SprintPlanfrom douglas.domain.sprint import Commitment, SprintPlan
 
+from douglas.logging_utils import get_loggerfrom douglas.logging_utils import get_logger
 
+from douglas.providers.llm_provider import LLMProviderfrom douglas.providers.llm_provider import LLMProvider
 
-logger = get_logger(__name__)
 
-logger = logging.getLogger(__name__)
 
-=======
 
-_SKIPPED_STATUSES = {"""Utilities for transforming planning commitments."""
 
-    "done",
+logger = get_logger(__name__)logger = get_logger(__name__)
 
-    "finished",from __future__ import annotations
 
-    "complete",
 
-    "completed",from dataclasses import dataclass
 
-    "released",from typing import Dict, List, Mapping, Optional, Sequence
 
-    "archived",
+_SKIPPED_STATUSES = {_SKIPPED_STATUSES = {
 
-    "canceled",from douglas.logging_utils import get_logger
+    "done",    "done",
 
-    "cancelled",
+    "finished",    "finished",
 
-    "duplicate",__all__ = ["Commitment", "filter_commitments"]
+    "complete",    "complete",
 
-    "won't do",
+    "completed",    "completed",
 
-    "wont_do",
+    "released",    "released",
 
-    "won't_do",logger = get_logger(__name__)
+    "archived",    "archived",
 
-    "wont do",>>>>>>> main
+    "canceled",    "canceled",
 
-    "obsolete",
+    "cancelled",    "cancelled",
 
-}
+    "duplicate",    "duplicate",
 
-_SKIPPED_STATUSES = {
+    "won't do",    "won't do",
 
-# Maximum number of primary goals to display in sprint planning    "done",
+    "wont_do",    "wont_do",
 
-_PRIMARY_GOAL_LIMIT = 3<<<<<<< HEAD
+    "won't_do",    "won't_do",
 
-    "finished",
+    "wont do",    "wont do",
 
-    "complete",
+    "obsolete",    "obsolete",
 
-@dataclass    "completed",
+}}
 
-class PlanningContext:    "released",
 
-    """Parameters needed to build a sprint plan.    "archived",
 
-    "canceled",
+# Maximum number of primary goals to display in sprint planning# Maximum number of primary goals to display in sprint planning
 
-    Args:    "cancelled",
+_PRIMARY_GOAL_LIMIT = 3_PRIMARY_GOAL_LIMIT = 3
 
-        project_root: Root directory of the project being planned.}
 
-        backlog_state_path: Path to the serialized backlog JSON file.
 
-        sprint_index: Index (1-based) of the sprint being planned._PRIMARY_GOAL_LIMIT = 3
 
-        items_per_sprint: Number of commitments to pull into the sprint.
 
-        seed: Global seed used to derive deterministic selection seeds.
+@dataclass@dataclass
 
-        provider: Optional LLM provider used to draft sprint summaries.@dataclass
+class PlanningContext:class PlanningContext:
 
-        summary_intro: Optional freeform text prepended to generated summaries.class PlanningContext:
+    """Parameters needed to build a sprint plan.    """Parameters needed to build a sprint plan.
 
-        state_dir: Optional override for where plan JSON artifacts are written.    """Parameters needed to build a sprint plan.
 
-        markdown_dir: Optional override for where plan markdown is written.
 
-        backlog_fallback: Optional backlog payload used when state is missing.    Args:
+    Args:    Args:
 
-    """        project_root: Root directory of the project being planned.
+        project_root: Root directory of the project being planned.        project_root: Root directory of the project being planned.
 
-        backlog_state_path: Path to the serialized backlog JSON file.
+        backlog_state_path: Path to the serialized backlog JSON file.        backlog_state_path: Path to the serialized backlog JSON file.
 
-    project_root: Path        sprint_index: Index (1-based) of the sprint being planned.
+        sprint_index: Index (1-based) of the sprint being planned.        sprint_index: Index (1-based) of the sprint being planned.
 
-    backlog_state_path: Path        items_per_sprint: Number of commitments to pull into the sprint.
+        items_per_sprint: Number of commitments to pull into the sprint.        items_per_sprint: Number of commitments to pull into the sprint.
 
-    sprint_index: int        seed: Global seed used to derive deterministic selection seeds.
+        seed: Global seed used to derive deterministic selection seeds.        seed: Global seed used to derive deterministic selection seeds.
 
-    items_per_sprint: int = 3        provider: Optional LLM provider used to draft sprint summaries.
+        provider: Optional LLM provider used to draft sprint summaries.        provider: Optional LLM provider used to draft sprint summaries.
 
-    seed: int = 0        summary_intro: Optional freeform text prepended to generated summaries.
+        summary_intro: Optional freeform text prepended to generated summaries.        summary_intro: Optional freeform text prepended to generated summaries.
 
-    provider: Optional[LLMProvider] = None        state_dir: Optional override for where plan JSON artifacts are written.
+        state_dir: Optional override for where plan JSON artifacts are written.        state_dir: Optional override for where plan JSON artifacts are written.
 
-    summary_intro: Optional[str] = None        markdown_dir: Optional override for where plan markdown is written.
+        markdown_dir: Optional override for where plan markdown is written.        markdown_dir: Optional override for where plan markdown is written.
 
-    state_dir: Optional[Path] = None        backlog_fallback: Optional backlog payload used when state is missing.
+        backlog_fallback: Optional backlog payload used when state is missing.        backlog_fallback: Optional backlog payload used when state is missing.
 
-    markdown_dir: Optional[Path] = None    """
+    """    """
 
-    backlog_fallback: Optional[Mapping[str, object]] = None
 
-    project_root: Path
 
-    backlog_state_path: Path
+    project_root: Path    project_root: Path
 
-@dataclass    sprint_index: int
+    backlog_state_path: Path    backlog_state_path: Path
 
-class PlanningStepResult:    items_per_sprint: int = 3
+    sprint_index: int    sprint_index: int
 
-    """Outcome of running the sprint planning step."""    seed: int = 0
+    items_per_sprint: int = 3    items_per_sprint: int = 3
 
-    provider: Optional[LLMProvider] = None
+    seed: int = 0    seed: int = 0
 
-    executed: bool    summary_intro: Optional[str] = None
+    provider: Optional[LLMProvider] = None    provider: Optional[LLMProvider] = None
 
-    success: bool    state_dir: Optional[Path] = None
+    summary_intro: Optional[str] = None    summary_intro: Optional[str] = None
 
-    reason: str    markdown_dir: Optional[Path] = None
+    state_dir: Optional[Path] = None    state_dir: Optional[Path] = None
 
-    plan: Optional[SprintPlan] = None    backlog_fallback: Optional[Mapping[str, object]] = None
+    markdown_dir: Optional[Path] = None    markdown_dir: Optional[Path] = None
 
-    json_path: Optional[Path] = None
+    backlog_fallback: Optional[Mapping[str, object]] = None    backlog_fallback: Optional[Mapping[str, object]] = None
 
-    markdown_path: Optional[Path] = None
 
-    summary_text: Optional[str] = None@dataclass
 
-    used_fallback: bool = Falseclass PlanningStepResult:
 
-    """Outcome of running the sprint planning step."""
 
-    def summary(self, project_root: Optional[Path] = None) -> Dict[str, object]:
+@dataclass@dataclass
 
-        project_root = project_root or Path.cwd()    executed: bool
+class PlanningStepResult:class PlanningStepResult:
 
-        summary: Dict[str, object] = {    success: bool
+    """Outcome of running the sprint planning step."""    """Outcome of running the sprint planning step."""
 
-            "executed": self.executed,    reason: str
 
-            "success": self.success,    plan: Optional[SprintPlan] = None
 
-            "reason": self.reason,    json_path: Optional[Path] = None
+    executed: bool    executed: bool
 
-        }    markdown_path: Optional[Path] = None
+    success: bool    success: bool
 
-        if self.used_fallback:    summary_text: Optional[str] = None
+    reason: str    reason: str
 
-            summary["used_fallback"] = True    used_fallback: bool = False
+    plan: Optional[SprintPlan] = None    plan: Optional[SprintPlan] = None
 
-        if self.plan is not None:
+    json_path: Optional[Path] = None    json_path: Optional[Path] = None
 
-            summary.update(    def summary(self, project_root: Optional[Path] = None) -> Dict[str, object]:
+    markdown_path: Optional[Path] = None    markdown_path: Optional[Path] = None
 
-                {        project_root = project_root or Path.cwd()
+    summary_text: Optional[str] = None    summary_text: Optional[str] = None
 
-                    "sprint": self.plan.sprint_index,        summary: Dict[str, object] = {
+    used_fallback: bool = False    used_fallback: bool = False
 
-                    "goals": list(self.plan.goals),            "executed": self.executed,
 
-                    "commitments": self.plan.commitment_ids,            "success": self.success,
 
-                }            "reason": self.reason,
+    def summary(self, project_root: Optional[Path] = None) -> Dict[str, object]:    def summary(self, project_root: Optional[Path] = None) -> Dict[str, object]:
 
-            )        }
+        project_root = project_root or Path.cwd()        project_root = project_root or Path.cwd()
 
-        if self.json_path is not None:        if self.used_fallback:
+        summary: Dict[str, object] = {        summary: Dict[str, object] = {
 
-            summary["json_path"] = _relative_path(self.json_path, project_root)            summary["used_fallback"] = True
+            "executed": self.executed,            "executed": self.executed,
 
-        if self.markdown_path is not None:        if self.plan is not None:
+            "success": self.success,            "success": self.success,
 
-            summary["markdown_path"] = _relative_path(self.markdown_path, project_root)            summary.update(
+            "reason": self.reason,            "reason": self.reason,
 
-        return summary                {
+        }        }
 
-                    "sprint": self.plan.sprint_index,
+        if self.used_fallback:        if self.used_fallback:
 
-                    "goals": list(self.plan.goals),
+            summary["used_fallback"] = True            summary["used_fallback"] = True
 
-def _relative_path(path: Path, project_root: Path) -> str:                    "commitments": self.plan.commitment_ids,
+        if self.plan is not None:        if self.plan is not None:
 
-    try:                }
+            summary.update(            summary.update(
 
-        return str(path.relative_to(project_root))            )
+                {                {
 
-    except ValueError:        if self.json_path is not None:
+                    "sprint": self.plan.sprint_index,                    "sprint": self.plan.sprint_index,
 
-        return str(path)            summary["json_path"] = _relative_path(self.json_path, project_root)
+                    "goals": list(self.plan.goals),                    "goals": list(self.plan.goals),
 
-        if self.markdown_path is not None:
+                    "commitments": self.plan.commitment_ids,                    "commitments": self.plan.commitment_ids,
 
-            summary["markdown_path"] = _relative_path(self.markdown_path, project_root)
+                }                }
 
-def _selection_seed(seed: int, sprint_index: int, signature: Optional[str]) -> int:        return summary
+            )            )
 
-    material = f"{seed}:{sprint_index}:{signature or ''}".encode("utf-8")
+        if self.json_path is not None:        if self.json_path is not None:
 
-    digest = hashlib.sha256(material).hexdigest()
+            summary["json_path"] = _relative_path(self.json_path, project_root)            summary["json_path"] = _relative_path(self.json_path, project_root)
 
-    return int(digest, 16)def _relative_path(path: Path, project_root: Path) -> str:
+        if self.markdown_path is not None:        if self.markdown_path is not None:
 
-    try:
+            summary["markdown_path"] = _relative_path(self.markdown_path, project_root)            summary["markdown_path"] = _relative_path(self.markdown_path, project_root)
 
-        return str(path.relative_to(project_root))
+        return summary        return summary
 
-def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str], str]:    except ValueError:
 
-    try:        return str(path)
 
-        raw_text = path.read_text(encoding="utf-8")
 
-    except FileNotFoundError:
 
-        return [], None, "missing_backlog"def _selection_seed(seed: int, sprint_index: int, signature: Optional[str]) -> int:
+def _relative_path(path: Path, project_root: Path) -> str:def _relative_path(path: Path, project_root: Path) -> str:
 
-    except OSError:    material = f"{seed}:{sprint_index}:{signature or ''}".encode("utf-8")
+    try:    try:
 
-        return [], None, "backlog_unreadable"    digest = hashlib.sha256(material).hexdigest()
+        return str(path.relative_to(project_root))        return str(path.relative_to(project_root))
 
-    return int(digest, 16)
+    except ValueError:    except ValueError:
 
-    try:
+        return str(path)        return str(path)
 
-        payload = json.loads(raw_text)
 
-    except json.JSONDecodeError:def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str], str]:
 
-        return [], None, "invalid_backlog"    try:
 
-        raw_text = path.read_text(encoding="utf-8")
 
-    items = payload.get("items")    except FileNotFoundError:
+def _selection_seed(seed: int, sprint_index: int, signature: Optional[str]) -> int:def _selection_seed(seed: int, sprint_index: int, signature: Optional[str]) -> int:
 
-    if not isinstance(items, list):        return [], None, "missing_backlog"
+    material = f"{seed}:{sprint_index}:{signature or ''}".encode("utf-8")    material = f"{seed}:{sprint_index}:{signature or ''}".encode("utf-8")
 
-        items = []    except OSError:
+    digest = hashlib.sha256(material).hexdigest()    digest = hashlib.sha256(material).hexdigest()
 
-    signature = SprintPlan.signature_for_items(items)        return [], None, "backlog_unreadable"
+    return int(digest, 16)    return int(digest, 16)
 
-    return items, signature, "ok" if items else "empty_backlog"
 
-    try:
 
-        payload = json.loads(raw_text)
 
-def _sanitize_log_value(value: object) -> str:    except json.JSONDecodeError:
 
-    """Sanitize a value for safe logging by removing control characters."""        return [], None, "invalid_backlog"
+def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str], str]:def _load_backlog(path: Path) -> tuple[List[Mapping[str, object]], Optional[str], str]:
 
-    text = str(value)
+    try:    try:
 
-    sanitized_chars = []    items = payload.get("items")
+        raw_text = path.read_text(encoding="utf-8")        raw_text = path.read_text(encoding="utf-8")
 
-    for char in text:    if not isinstance(items, list):
+    except FileNotFoundError:    except FileNotFoundError:
 
-        codepoint = ord(char)        items = []
+        return [], None, "missing_backlog"        return [], None, "missing_backlog"
 
-        if char in {"\n", "\r"} or codepoint < 32:    signature = SprintPlan.signature_for_items(items)
+    except OSError:    except OSError:
 
-            sanitized_chars.append(" ")    return items, signature, "ok" if items else "empty_backlog"
+        return [], None, "backlog_unreadable"        return [], None, "backlog_unreadable"
 
-        else:
 
-            sanitized_chars.append(char)
 
-    return "".join(sanitized_chars)def _sanitize_log_value(value: object) -> str:
+    try:    try:
 
-    text = str(value)
+        payload = json.loads(raw_text)        payload = json.loads(raw_text)
 
-    sanitized_chars = []
+    except json.JSONDecodeError:    except json.JSONDecodeError:
 
-def _normalize_fallback_items(    for char in text:
+        return [], None, "invalid_backlog"        return [], None, "invalid_backlog"
 
-    items: Iterable[Mapping[str, object]]        codepoint = ord(char)
 
-) -> List[Mapping[str, object]]:        if char in {"\n", "\r"} or codepoint < 32:
 
-    normalized_items: List[Mapping[str, object]] = []            sanitized_chars.append(" ")
+    items = payload.get("items")    items = payload.get("items")
 
-    for raw in items:        else:
+    if not isinstance(items, list):    if not isinstance(items, list):
 
-        if not isinstance(raw, Mapping):            sanitized_chars.append(char)
+        items = []        items = []
 
-            continue    return "".join(sanitized_chars)
+    signature = SprintPlan.signature_for_items(items)    signature = SprintPlan.signature_for_items(items)
 
-        candidate = dict(raw)
+    return items, signature, "ok" if items else "empty_backlog"    return items, signature, "ok" if items else "empty_backlog"
 
-        identifier = (
 
-            candidate.get("id")def _normalize_fallback_items(
 
-            or candidate.get("identifier")    items: Iterable[Mapping[str, object]]
 
-            or candidate.get("external_id")) -> List[Mapping[str, object]]:
 
-        )    normalized_items: List[Mapping[str, object]] = []
+def _sanitize_log_value(value: object) -> str:def _sanitize_log_value(value: object) -> str:
 
-        title = candidate.get("title") or candidate.get("name")    for raw in items:
+    """Sanitize a value for safe logging by removing control characters."""    text = str(value)
 
-        status = candidate.get("status") or candidate.get("state")        if not isinstance(raw, Mapping):
+    text = str(value)    sanitized_chars = []
 
-        if identifier and "id" not in candidate:            continue
+    sanitized_chars = []    for char in text:
 
-            candidate["id"] = identifier        candidate = dict(raw)
+    for char in text:        codepoint = ord(char)
 
-        if title and "title" not in candidate:        identifier = (
+        codepoint = ord(char)        if char in {"\n", "\r"} or codepoint < 32:
 
-            candidate["title"] = title            candidate.get("id")
+        if char in {"\n", "\r"} or codepoint < 32:            sanitized_chars.append(" ")
 
-        if status and "status" not in candidate:            or candidate.get("identifier")
+            sanitized_chars.append(" ")        else:
 
-            candidate["status"] = status            or candidate.get("external_id")
+        else:            sanitized_chars.append(char)
 
-        normalized_items.append(candidate)        )
+            sanitized_chars.append(char)    return "".join(sanitized_chars)
 
-    return normalized_items        title = candidate.get("title") or candidate.get("name")
+    return "".join(sanitized_chars)
 
-        status = candidate.get("status") or candidate.get("state")
 
-        if identifier and "id" not in candidate:
 
-def _extract_fallback_items(            candidate["id"] = identifier
+def _normalize_fallback_items(
 
-    data: Optional[Mapping[str, object]]        if title and "title" not in candidate:
+def _normalize_fallback_items(    items: Iterable[Mapping[str, object]]
 
-) -> List[Mapping[str, object]]:            candidate["title"] = title
+    items: Iterable[Mapping[str, object]]) -> List[Mapping[str, object]]:
 
-    if not isinstance(data, Mapping):        if status and "status" not in candidate:
+) -> List[Mapping[str, object]]:    normalized_items: List[Mapping[str, object]] = []
 
-        return []            candidate["status"] = status
+    normalized_items: List[Mapping[str, object]] = []    for raw in items:
 
-        normalized_items.append(candidate)
+    for raw in items:        if not isinstance(raw, Mapping):
 
-    collected: List[Mapping[str, object]] = []    return normalized_items
+        if not isinstance(raw, Mapping):            continue
 
-    seen_ids: set[str] = set()
+            continue        candidate = dict(raw)
 
+        candidate = dict(raw)        identifier = (
 
+        identifier = (            candidate.get("id")
 
-    def _collect(sequence: object) -> None:def _extract_fallback_items(
+            candidate.get("id")            or candidate.get("identifier")
 
-        if isinstance(sequence, Sequence):    data: Optional[Mapping[str, object]]
+            or candidate.get("identifier")            or candidate.get("external_id")
 
-            for normalized in _normalize_fallback_items() -> List[Mapping[str, object]]:
+            or candidate.get("external_id")        )
 
-                item for item in sequence if isinstance(item, Mapping)    if not isinstance(data, Mapping):
+        )        title = candidate.get("title") or candidate.get("name")
 
-            ):        return []
+        title = candidate.get("title") or candidate.get("name")        status = candidate.get("status") or candidate.get("state")
 
-                identifier = normalized.get("id")
+        status = candidate.get("status") or candidate.get("state")        if identifier and "id" not in candidate:
 
-                if isinstance(identifier, str):    collected: List[Mapping[str, object]] = []
+        if identifier and "id" not in candidate:            candidate["id"] = identifier
 
-                    if identifier in seen_ids:    seen_ids: set[str] = set()
+            candidate["id"] = identifier        if title and "title" not in candidate:
 
-                        continue
+        if title and "title" not in candidate:            candidate["title"] = title
 
-                    seen_ids.add(identifier)    def _collect(sequence: object) -> None:
+            candidate["title"] = title        if status and "status" not in candidate:
 
-                collected.append(normalized)        if isinstance(sequence, Sequence):
+        if status and "status" not in candidate:            candidate["status"] = status
 
-            for normalized in _normalize_fallback_items(
+            candidate["status"] = status        normalized_items.append(candidate)
 
-    for key in ("items", "stories", "tasks", "features", "epics"):                item for item in sequence if isinstance(item, Mapping)
+        normalized_items.append(candidate)    return normalized_items
 
-        _collect(data.get(key))            ):
+    return normalized_items
 
-                identifier = normalized.get("id")
 
-    backlog = data.get("backlog")                if isinstance(identifier, str):
 
-    if isinstance(backlog, Mapping):                    if identifier in seen_ids:
+def _extract_fallback_items(
 
-        for key in ("items", "stories", "tasks", "features", "epics"):                        continue
+def _extract_fallback_items(    data: Optional[Mapping[str, object]]
 
-            _collect(backlog.get(key))                    seen_ids.add(identifier)
+    data: Optional[Mapping[str, object]]) -> List[Mapping[str, object]]:
 
-                collected.append(normalized)
+) -> List[Mapping[str, object]]:    if not isinstance(data, Mapping):
 
-    return collected
-
-    for key in ("items", "stories", "tasks", "features", "epics"):
-
-        _collect(data.get(key))
-
-def _coerce_string(value: Optional[object]) -> str:
-
-    if value is None:    backlog = data.get("backlog")
-
-        return ""    if isinstance(backlog, Mapping):
-
-    if isinstance(value, str):        for key in ("items", "stories", "tasks", "features", "epics"):
-
-        return value.strip()            _collect(backlog.get(key))
-
-    return str(value).strip()
-
-    return collected
-
-
-
-def _summarize_commitment(data: Mapping[str, object]) -> str:
-
-    identifier = _coerce_string(def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
-
-        data.get("id")    commitments: List[Commitment] = []
-
-        or data.get("commitment_id")    for item in items:
-
-        or data.get("reference")        if not isinstance(item, Mapping):
-
-        or data.get("title")            continue
-
-        or data.get("name")        normalized: Dict[str, object] = dict(item)
-
-    )        status = str(normalized.get("status", "")).strip().lower()
-
-    return identifier or "<unknown>"=======
-
-    "completed",
-
-    "complete",
-
-def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:    "cancelled",
-
-    """Return valid commitments, logging when items are discarded."""    "canceled",
-
-    commitments: List[Commitment] = []    "duplicate",
-
-    for index, item in enumerate(items):    "won't do",
-
-        if not isinstance(item, Mapping):    "wont_do",
-
-            logger.warning("Skipping non-mapping commitment at index %d", index)    "won't_do",
-
-            continue    "wont do",
-
-        normalized: Dict[str, object] = dict(item)    "obsolete",
-
-        status = _coerce_string(normalized.get("status")).lower()    "archived",
-
-        if status in _SKIPPED_STATUSES:}
-
-            continue
-
-        try:
-
-            if "title" not in normalized and "name" in normalized:@dataclass(frozen=True)
-
-                normalized["title"] = normalized["name"]class Commitment:
-
-            commitment = Commitment.from_mapping(normalized)    """Serializable representation of a planning commitment entry."""
-
-        except ValueError as exc:
-
-            item_reference = (    identifier: str
-
-                normalized.get("id")    title: str
-
-                or normalized.get("external_id")    status: str = ""
-
-                or normalized.get("title")    description: str = ""
-
-                or normalized.get("name")
-
-                or "<unknown>"    @classmethod
-
-            )    def from_mapping(cls, payload: Mapping[str, object]) -> "Commitment":
-
-            logger.warning(        """Create a commitment from a mapping, validating required fields."""
-
-                "Skipping backlog item %s due to invalid commitment data: %s",
-
-                _sanitize_log_value(item_reference),        title = _coerce_string(payload.get("title"))
-
-                _sanitize_log_value(exc),        if not title:
-
-            )            title = _coerce_string(payload.get("name"))
-
-            continue        if not title:
-
-        commitments.append(commitment)            raise ValueError("commitment requires a title")
-
-    return commitments
-
-        identifier = _coerce_string(
-
-            payload.get("id")
-
-def filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:            or payload.get("commitment_id")
-
-    """Public wrapper around :func:`_filter_commitments`."""            or payload.get("ref")
-
-    return _filter_commitments(items)            or payload.get("reference")
-
-        )
-
-
-
-def _select_commitments(        status = _coerce_string(payload.get("status"))
-
-    candidates: List[Commitment],        description_value = payload.get("description")
-
-    seed: int,        description = _normalize_multiline(description_value)
-
-    items_per_sprint: int,
-
-) -> List[Commitment]:        return cls(identifier=identifier, title=title, status=status, description=description)
-
-    if items_per_sprint <= 0 or not candidates:
+    if not isinstance(data, Mapping):        return []
 
         return []
 
-    rng = random.Random(seed)def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
+    collected: List[Mapping[str, object]] = []
 
-    indices = list(range(len(candidates)))    """Return valid commitments, logging when items are discarded."""
+    collected: List[Mapping[str, object]] = []    seen_ids: set[str] = set()
 
-    rng.shuffle(indices)
+    seen_ids: set[str] = set()
 
-    selected_indices = sorted(indices[:items_per_sprint])    commitments: List[Commitment] = []
+    def _collect(sequence: object) -> None:
 
-    return [candidates[index] for index in selected_indices]    for index, item in enumerate(items):
+    def _collect(sequence: object) -> None:        if isinstance(sequence, Sequence):
+
+        if isinstance(sequence, Sequence):            for normalized in _normalize_fallback_items(
+
+            for normalized in _normalize_fallback_items(                item for item in sequence if isinstance(item, Mapping)
+
+                item for item in sequence if isinstance(item, Mapping)            ):
+
+            ):                identifier = normalized.get("id")
+
+                identifier = normalized.get("id")                if isinstance(identifier, str):
+
+                if isinstance(identifier, str):                    if identifier in seen_ids:
+
+                    if identifier in seen_ids:                        continue
+
+                        continue                    seen_ids.add(identifier)
+
+                    seen_ids.add(identifier)                collected.append(normalized)
+
+                collected.append(normalized)
+
+    for key in ("items", "stories", "tasks", "features", "epics"):
+
+    for key in ("items", "stories", "tasks", "features", "epics"):        _collect(data.get(key))
+
+        _collect(data.get(key))
+
+    backlog = data.get("backlog")
+
+    backlog = data.get("backlog")    if isinstance(backlog, Mapping):
+
+    if isinstance(backlog, Mapping):        for key in ("items", "stories", "tasks", "features", "epics"):
+
+        for key in ("items", "stories", "tasks", "features", "epics"):            _collect(backlog.get(key))
+
+            _collect(backlog.get(key))
+
+    return collected
+
+    return collected
+
+
+
+def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
+
+def _coerce_string(value: Optional[object]) -> str:    commitments: List[Commitment] = []
+
+    if value is None:    for item in items:
+
+        return ""        if not isinstance(item, Mapping):
+
+    if isinstance(value, str):            continue
+
+        return value.strip()        normalized: Dict[str, object] = dict(item)
+
+    return str(value).strip()        status = str(normalized.get("status", "")).strip().lower()
+
+=======
+
+    "completed",
+
+def _normalize_multiline(value: Optional[object]) -> str:    "complete",
+
+    if value is None:    "cancelled",
+
+        return ""    "canceled",
+
+    if isinstance(value, str):    "duplicate",
+
+        return value.strip()    "won't do",
+
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):    "wont_do",
+
+        return "\n".join(_coerce_string(part) for part in value if part is not None)    "won't_do",
+
+    return str(value).strip()    "wont do",
+
+    "obsolete",
+
+    "archived",
+
+def _summarize_commitment(data: Mapping[str, object]) -> str:}
+
+    identifier = _coerce_string(
+
+        data.get("id")
+
+        or data.get("commitment_id")@dataclass(frozen=True)
+
+        or data.get("reference")class Commitment:
+
+        or data.get("title")    """Serializable representation of a planning commitment entry."""
+
+        or data.get("name")
+
+    )    identifier: str
+
+    return identifier or "<unknown>"    title: str
+
+    status: str = ""
+
+    description: str = ""
+
+def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
+
+    """Return valid commitments, logging when items are discarded."""    @classmethod
+
+    commitments: List[Commitment] = []    def from_mapping(cls, payload: Mapping[str, object]) -> "Commitment":
+
+    for index, item in enumerate(items):        """Create a commitment from a mapping, validating required fields."""
 
         if not isinstance(item, Mapping):
 
-            logger.warning("Skipping non-mapping commitment at index %d", index)
+            logger.warning("Skipping non-mapping commitment at index %d", index)        title = _coerce_string(payload.get("title"))
 
-def _derive_goals(commitments: Sequence[Commitment], sprint_index: int) -> List[str]:            continue
+            continue        if not title:
 
-    if not commitments:        normalized: Dict[str, object] = dict(item)
+        normalized: Dict[str, object] = dict(item)            title = _coerce_string(payload.get("name"))
 
-        return [f"Refine backlog priorities for Sprint {sprint_index}."]        status = _coerce_string(normalized.get("status")).lower()
+        status = _coerce_string(normalized.get("status")).lower()        if not title:
 
-    goals = [>>>>>>> main
+        if status in _SKIPPED_STATUSES:            raise ValueError("commitment requires a title")
 
-        f"Deliver: {commitment.title}" for commitment in commitments[:_PRIMARY_GOAL_LIMIT]        if status in _SKIPPED_STATUSES:
+            continue
 
-    ]            continue
+        try:        identifier = _coerce_string(
 
-    remaining = len(commitments) - _PRIMARY_GOAL_LIMIT        try:
+            if "title" not in normalized and "name" in normalized:            payload.get("id")
 
-    if remaining > 0:            if "title" not in normalized and "name" in normalized:
+                normalized["title"] = normalized["name"]            or payload.get("commitment_id")
 
-        plural = "s" if remaining != 1 else ""                normalized["title"] = normalized["name"]
+            commitment = Commitment.from_mapping(normalized)            or payload.get("ref")
 
-        goals.append(f"Prepare {remaining} additional backlog item{plural} for upcoming work.")            commitment = Commitment.from_mapping(normalized)
+        except ValueError as exc:            or payload.get("reference")
 
-    return goals        except ValueError as exc:
+            item_reference = (        )
 
-<<<<<<< HEAD
+                normalized.get("id")
 
-            item_reference = (
+                or normalized.get("external_id")        status = _coerce_string(payload.get("status"))
 
-def _provider_summary(                normalized.get("id")
+                or normalized.get("title")        description_value = payload.get("description")
 
-    provider: Optional[LLMProvider],                or normalized.get("external_id")
+                or normalized.get("name")        description = _normalize_multiline(description_value)
 
-    plan: SprintPlan,                or normalized.get("title")
+                or "<unknown>"
 
-    intro: Optional[str],                or normalized.get("name")
+            )        return cls(identifier=identifier, title=title, status=status, description=description)
 
-) -> Optional[str]:                or "<unknown>"
-
-    if provider is None or not plan.commitments:            )
-
-        return intro            logger.warning(
+            logger.warning(
 
                 "Skipping backlog item %s due to invalid commitment data: %s",
 
-    payload = {                _sanitize_log_value(item_reference),
+                _sanitize_log_value(item_reference),def _filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:
 
-        "sprint": plan.sprint_index,                _sanitize_log_value(exc),
+                _sanitize_log_value(exc),    """Return valid commitments, logging when items are discarded."""
 
-        "goals": plan.goals,=======
+            )
 
-        "items_requested": plan.items_requested,            summary = _summarize_commitment(normalized)
+            continue    commitments: List[Commitment] = []
 
-        "commitments": [commitment.to_dict() for commitment in plan.commitments],            logger.warning(
+        commitments.append(commitment)    for index, item in enumerate(items):
 
-    }                "Skipping invalid commitment at index %d (%s): %s",
+    return commitments        if not isinstance(item, Mapping):
 
-    prompt = textwrap.dedent(                index,
+            logger.warning("Skipping non-mapping commitment at index %d", index)
 
-        f"""                summary,
+            continue
 
-        You are preparing a sprint planning recap. Using the structured data                exc,
+def filter_commitments(items: Sequence[Mapping[str, object]]) -> List[Commitment]:        normalized: Dict[str, object] = dict(item)
 
-        below, write a concise markdown summary. Avoid code fences and keep the>>>>>>> main
+    """Public wrapper around :func:`_filter_commitments`."""        status = _coerce_string(normalized.get("status")).lower()
 
-        tone action-oriented.            )
+    return _filter_commitments(items)>>>>>>> main
 
-        <plan-data>            continue
+        if status in _SKIPPED_STATUSES:
 
-        {json.dumps(payload, indent=2, sort_keys=True)}        commitments.append(commitment)
+            continue
 
-        </plan-data>    return commitments
+def _select_commitments(        try:
 
-        """
+    candidates: List[Commitment],            if "title" not in normalized and "name" in normalized:
 
-    ).strip()
+    seed: int,                normalized["title"] = normalized["name"]
 
-<<<<<<< HEAD
+    items_per_sprint: int,            commitment = Commitment.from_mapping(normalized)
 
-    try:def _select_commitments(
+) -> List[Commitment]:        except ValueError as exc:
 
-        response = provider.generate_code(prompt)    candidates: List[Commitment],
+    if items_per_sprint <= 0 or not candidates:<<<<<<< HEAD
 
-    except Exception:    seed: int,
+        return []            item_reference = (
 
-        return intro    items_per_sprint: int,
+    rng = random.Random(seed)                normalized.get("id")
 
-) -> List[Commitment]:
+    indices = list(range(len(candidates)))                or normalized.get("external_id")
 
-    summary = response.strip()    if items_per_sprint <= 0 or not candidates:
+    rng.shuffle(indices)                or normalized.get("title")
 
-    if intro:        return []
+    selected_indices = sorted(indices[:items_per_sprint])                or normalized.get("name")
 
-        intro_text = intro.strip()    rng = random.Random(seed)
+    return [candidates[index] for index in selected_indices]                or "<unknown>"
 
-        if intro_text and summary:    indices = list(range(len(candidates)))
+            )
 
-            return f"{intro_text}\n\n{summary}"    rng.shuffle(indices)
+            logger.warning(
 
-        if intro_text:    selected_indices = sorted(indices[:items_per_sprint])
+def _derive_goals(commitments: Sequence[Commitment], sprint_index: int) -> List[str]:                "Skipping backlog item %s due to invalid commitment data: %s",
 
-            return intro_text    return [candidates[index] for index in selected_indices]
+    if not commitments:                _sanitize_log_value(item_reference),
 
-    return summary or intro
+        return [f"Refine backlog priorities for Sprint {sprint_index}."]                _sanitize_log_value(exc),
 
+    goals = [=======
 
+        f"Deliver: {commitment.title}" for commitment in commitments[:_PRIMARY_GOAL_LIMIT]            summary = _summarize_commitment(normalized)
 
-def _derive_goals(commitments: Sequence[Commitment], sprint_index: int) -> List[str]:
+    ]            logger.warning(
 
-def run_planning(context: PlanningContext) -> PlanningStepResult:    if not commitments:
+    remaining = len(commitments) - _PRIMARY_GOAL_LIMIT                "Skipping invalid commitment at index %d (%s): %s",
 
-    def _apply_fallback_if_needed(items, signature, status, fallback_payload):        return [f"Refine backlog priorities for Sprint {sprint_index}."]
+    if remaining > 0:                index,
 
-        fallback_items = _extract_fallback_items(fallback_payload)    goals = [
+        plural = "s" if remaining != 1 else ""                summary,
 
-        if fallback_items:        f"Deliver: {commitment.title}" for commitment in commitments[:_PRIMARY_GOAL_LIMIT]
+        goals.append(f"Prepare {remaining} additional backlog item{plural} for upcoming work.")                exc,
 
-            items = fallback_items    ]
+    return goals>>>>>>> main
 
-            signature = SprintPlan.signature_for_items(items)    remaining = len(commitments) - _PRIMARY_GOAL_LIMIT
+            )
 
-            status = "ok"    if remaining > 0:
+            continue
 
-            fallback_used = True        plural = "s" if remaining != 1 else ""
+def _provider_summary(        commitments.append(commitment)
 
-        else:        goals.append(f"Prepare {remaining} additional backlog item{plural} for upcoming work.")
+    provider: Optional[LLMProvider],    return commitments
 
-            fallback_used = False    return goals
+    plan: SprintPlan,
 
-        return items, signature, status, fallback_used, bool(fallback_items)
+    intro: Optional[str],
 
+) -> Optional[str]:<<<<<<< HEAD
 
+    if provider is None or not plan.commitments:def _select_commitments(
 
-    items, signature, status = _load_backlog(context.backlog_state_path)def _provider_summary(
+        return intro    candidates: List[Commitment],
 
-    fallback_used = False    provider: Optional[LLMProvider],
+    seed: int,
 
-    if status in {"missing_backlog", "backlog_unreadable", "invalid_backlog"}:    plan: SprintPlan,
+    payload = {    items_per_sprint: int,
 
-        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(    intro: Optional[str],
+        "sprint": plan.sprint_index,) -> List[Commitment]:
 
-            items, signature, status, context.backlog_fallback) -> Optional[str]:
+        "goals": plan.goals,    if items_per_sprint <= 0 or not candidates:
 
-        )    if provider is None or not plan.commitments:
+        "items_requested": plan.items_requested,        return []
 
-        if not has_fallback:        return intro
+        "commitments": [commitment.to_dict() for commitment in plan.commitments],    rng = random.Random(seed)
 
-            if status == "missing_backlog":
+    }    indices = list(range(len(candidates)))
 
-                return PlanningStepResult(False, True, status)    payload = {
+    prompt = textwrap.dedent(    rng.shuffle(indices)
 
-            return PlanningStepResult(False, False, status)        "sprint": plan.sprint_index,
+        f"""    selected_indices = sorted(indices[:items_per_sprint])
 
-    elif status == "empty_backlog":        "goals": plan.goals,
+        You are preparing a sprint planning recap. Using the structured data    return [candidates[index] for index in selected_indices]
 
-        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(        "items_requested": plan.items_requested,
+        below, write a concise markdown summary. Avoid code fences and keep the
 
-            items, signature, status, context.backlog_fallback        "commitments": [commitment.to_dict() for commitment in plan.commitments],
+        tone action-oriented.
 
-        )    }
+        <plan-data>def _derive_goals(commitments: Sequence[Commitment], sprint_index: int) -> List[str]:
 
-    prompt = textwrap.dedent(
+        {json.dumps(payload, indent=2, sort_keys=True)}    if not commitments:
 
-    filtered = _filter_commitments(items)        f"""
+        </plan-data>        return [f"Refine backlog priorities for Sprint {sprint_index}."]
 
-    selection_seed = _selection_seed(context.seed, context.sprint_index, signature)        You are preparing a sprint planning recap. Using the structured data
+        """    goals = [
 
-    requested_count = max(context.items_per_sprint, 0)        below, write a concise markdown summary. Avoid code fences and keep the
+    ).strip()        f"Deliver: {commitment.title}" for commitment in commitments[:_PRIMARY_GOAL_LIMIT]
 
-    commitments = _select_commitments(        tone action-oriented.
+    ]
 
-        filtered,        <plan-data>
+    try:    remaining = len(commitments) - _PRIMARY_GOAL_LIMIT
 
-        selection_seed,        {json.dumps(payload, indent=2, sort_keys=True)}
+        response = provider.generate_code(prompt)    if remaining > 0:
 
-        requested_count,        </plan-data>
+    except Exception:        plural = "s" if remaining != 1 else ""
 
-    )        """
+        return intro        goals.append(f"Prepare {remaining} additional backlog item{plural} for upcoming work.")
 
-    goals = _derive_goals(commitments, context.sprint_index)    ).strip()
+    return goals
 
+    summary = response.strip()
 
+    if intro:
 
-    plan = SprintPlan(    try:
+        intro_text = intro.strip()def _provider_summary(
 
-        sprint_index=context.sprint_index,        response = provider.generate_code(prompt)
+        if intro_text and summary:    provider: Optional[LLMProvider],
 
-        commitments=commitments,    except Exception:
+            return f"{intro_text}\n\n{summary}"    plan: SprintPlan,
 
-        goals=goals,        return intro
+        if intro_text:    intro: Optional[str],
 
-        items_requested=requested_count,  
+            return intro_text) -> Optional[str]:
 
-        backlog_items_total=len(filtered),    summary = response.strip()
+    return summary or intro    if provider is None or not plan.commitments:
 
-        selection_seed=selection_seed,    if intro:
+        return intro
 
-        backlog_signature=signature,        intro_text = intro.strip()
 
-    )        if intro_text and summary:
 
-            return f"{intro_text}\n\n{summary}"
+def run_planning(context: PlanningContext) -> PlanningStepResult:    payload = {
 
-    summary = _provider_summary(context.provider, plan, context.summary_intro)        if intro_text:
+    def _apply_fallback_if_needed(items, signature, status, fallback_payload):        "sprint": plan.sprint_index,
 
-            return intro_text
+        fallback_items = _extract_fallback_items(fallback_payload)        "goals": plan.goals,
 
-    state_dir = context.state_dir or (context.project_root / ".douglas" / "state")    return summary or intro
+        if fallback_items:        "items_requested": plan.items_requested,
 
-    markdown_dir = context.markdown_dir or (
+            items = fallback_items        "commitments": [commitment.to_dict() for commitment in plan.commitments],
 
-        context.project_root / "ai-inbox" / "planning"
+            signature = SprintPlan.signature_for_items(items)    }
 
-    )def run_planning(context: PlanningContext) -> PlanningStepResult:
+            status = "ok"    prompt = textwrap.dedent(
 
-    json_path = state_dir / f"sprint_plan_{context.sprint_index}.json"    def _apply_fallback_if_needed(items, signature, status, fallback_payload):
+            fallback_used = True        f"""
 
-    markdown_path = markdown_dir / f"sprint_{context.sprint_index}.md"        fallback_items = _extract_fallback_items(fallback_payload)
+        else:        You are preparing a sprint planning recap. Using the structured data
 
-        if fallback_items:
+            fallback_used = False        below, write a concise markdown summary. Avoid code fences and keep the
 
-    previous_generated_at: Optional[str] = None            items = fallback_items
+        return items, signature, status, fallback_used, bool(fallback_items)        tone action-oriented.
 
-    if json_path.exists():            signature = SprintPlan.signature_for_items(items)
+        <plan-data>
 
-        try:            status = "ok"
+    items, signature, status = _load_backlog(context.backlog_state_path)        {json.dumps(payload, indent=2, sort_keys=True)}
 
-            existing_payload = json.loads(json_path.read_text(encoding="utf-8"))            fallback_used = True
+    fallback_used = False        </plan-data>
 
-        except (OSError, json.JSONDecodeError):        else:
+    if status in {"missing_backlog", "backlog_unreadable", "invalid_backlog"}:        """
 
-            existing_payload = None            fallback_used = False
+        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(    ).strip()
 
-        else:        return items, signature, status, fallback_used, bool(fallback_items)
+            items, signature, status, context.backlog_fallback
 
-            if isinstance(existing_payload, Mapping):
+        )    try:
 
-                raw_timestamp = existing_payload.get("generated_at")    items, signature, status = _load_backlog(context.backlog_state_path)
+        if not has_fallback:        response = provider.generate_code(prompt)
 
-                if isinstance(raw_timestamp, str):    fallback_used = False
+            if status == "missing_backlog":    except Exception:
 
-                    previous_generated_at = raw_timestamp    if status in {"missing_backlog", "backlog_unreadable", "invalid_backlog"}:
-
-        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(
-
-    if previous_generated_at:            items, signature, status, context.backlog_fallback
-
-        try:        )
-
-            plan.generated_at = datetime.fromisoformat(previous_generated_at)        if not has_fallback:
-
-        except ValueError:            if status == "missing_backlog":
-
-            pass                return PlanningStepResult(False, True, status)
+                return PlanningStepResult(False, True, status)        return intro
 
             return PlanningStepResult(False, False, status)
 
-    try:    elif status == "empty_backlog":
+    elif status == "empty_backlog":    summary = response.strip()
 
-        plan.write_json(json_path)        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(
+        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(    if intro:
 
-        plan.write_markdown(markdown_path, summary)            items, signature, status, context.backlog_fallback
+            items, signature, status, context.backlog_fallback        intro_text = intro.strip()
 
-    except OSError as exc:        )
+        )        if intro_text and summary:
+
+            return f"{intro_text}\n\n{summary}"
+
+    filtered = _filter_commitments(items)        if intro_text:
+
+    selection_seed = _selection_seed(context.seed, context.sprint_index, signature)            return intro_text
+
+    requested_count = max(context.items_per_sprint, 0)    return summary or intro
+
+    commitments = _select_commitments(
+
+        filtered,
+
+        selection_seed,def run_planning(context: PlanningContext) -> PlanningStepResult:
+
+        requested_count,    def _apply_fallback_if_needed(items, signature, status, fallback_payload):
+
+    )        fallback_items = _extract_fallback_items(fallback_payload)
+
+    goals = _derive_goals(commitments, context.sprint_index)        if fallback_items:
+
+            items = fallback_items
+
+    plan = SprintPlan(            signature = SprintPlan.signature_for_items(items)
+
+        sprint_index=context.sprint_index,            status = "ok"
+
+        commitments=commitments,            fallback_used = True
+
+        goals=goals,        else:
+
+        items_requested=requested_count,            fallback_used = False
+
+        backlog_items_total=len(filtered),        return items, signature, status, fallback_used, bool(fallback_items)
+
+        selection_seed=selection_seed,
+
+        backlog_signature=signature,    items, signature, status = _load_backlog(context.backlog_state_path)
+
+    )    fallback_used = False
+
+    if status in {"missing_backlog", "backlog_unreadable", "invalid_backlog"}:
+
+    summary = _provider_summary(context.provider, plan, context.summary_intro)        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(
+
+            items, signature, status, context.backlog_fallback
+
+    state_dir = context.state_dir or (context.project_root / ".douglas" / "state")        )
+
+    markdown_dir = context.markdown_dir or (        if not has_fallback:
+
+        context.project_root / "ai-inbox" / "planning"            if status == "missing_backlog":
+
+    )                return PlanningStepResult(False, True, status)
+
+    json_path = state_dir / f"sprint_plan_{context.sprint_index}.json"            return PlanningStepResult(False, False, status)
+
+    markdown_path = markdown_dir / f"sprint_{context.sprint_index}.md"    elif status == "empty_backlog":
+
+        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(
+
+    previous_generated_at: Optional[str] = None            items, signature, status, context.backlog_fallback
+
+    if json_path.exists():        )
+
+        try:
+
+            existing_payload = json.loads(json_path.read_text(encoding="utf-8"))    filtered = _filter_commitments(items)
+
+        except (OSError, json.JSONDecodeError):    selection_seed = _selection_seed(context.seed, context.sprint_index, signature)
+
+            existing_payload = None    requested_count = max(context.items_per_sprint, 0)
+
+        else:    commitments = _select_commitments(
+
+            if isinstance(existing_payload, Mapping):        filtered,
+
+                raw_timestamp = existing_payload.get("generated_at")        selection_seed,
+
+                if isinstance(raw_timestamp, str):        requested_count,
+
+                    previous_generated_at = raw_timestamp    )
+
+    goals = _derive_goals(commitments, context.sprint_index)
+
+    if previous_generated_at:
+
+        try:    plan = SprintPlan(
+
+            plan.generated_at = datetime.fromisoformat(previous_generated_at)        sprint_index=context.sprint_index,
+
+        except ValueError:        commitments=commitments,
+
+            pass        goals=goals,
+
+        items_requested=requested_count,
+
+    try:        backlog_items_total=len(filtered),
+
+        plan.write_json(json_path)        selection_seed=selection_seed,
+
+        plan.write_markdown(markdown_path, summary)        backlog_signature=signature,
+
+    except OSError as exc:    )
 
         return PlanningStepResult(False, False, f"io_error:{exc}")
 
-    filtered = _filter_commitments(items)
+    summary = _provider_summary(context.provider, plan, context.summary_intro)
 
-    if commitments:    selection_seed = _selection_seed(context.seed, context.sprint_index, signature)
+    if commitments:
 
-        reason = "planned_fallback" if fallback_used else "planned"    requested_count = max(context.items_per_sprint, 0)
+        reason = "planned_fallback" if fallback_used else "planned"    state_dir = context.state_dir or (context.project_root / ".douglas" / "state")
 
-    elif status == "ok":    commitments = _select_commitments(
+    elif status == "ok":    markdown_dir = context.markdown_dir or (
 
-        reason = "no_commitments_selected"        filtered,
+        reason = "no_commitments_selected"        context.project_root / "ai-inbox" / "planning"
 
-    else:        selection_seed,
+    else:    )
 
-        reason = status        requested_count,
+        reason = status    json_path = state_dir / f"sprint_plan_{context.sprint_index}.json"
 
-    return PlanningStepResult(    )
-
-        True,    goals = _derive_goals(commitments, context.sprint_index)
+    return PlanningStepResult(    markdown_path = markdown_dir / f"sprint_{context.sprint_index}.md"
 
         True,
 
-        reason,    plan = SprintPlan(
+        True,    previous_generated_at: Optional[str] = None
 
-        plan=plan,        sprint_index=context.sprint_index,
+        reason,    if json_path.exists():
 
-        json_path=json_path,        commitments=commitments,
+        plan=plan,        try:
 
-        markdown_path=markdown_path,        goals=goals,
+        json_path=json_path,            existing_payload = json.loads(json_path.read_text(encoding="utf-8"))
 
-        summary_text=summary,        items_requested=requested_count,
+        markdown_path=markdown_path,        except (OSError, json.JSONDecodeError):
 
-        used_fallback=fallback_used,        backlog_items_total=len(filtered),
+        summary_text=summary,            existing_payload = None
 
-    )        selection_seed=selection_seed,
+        used_fallback=fallback_used,        else:
 
-        backlog_signature=signature,
+    )            if isinstance(existing_payload, Mapping):
 
-    )
-
-__all__ = ["PlanningContext", "PlanningStepResult", "run_planning", "filter_commitments"]
-    summary = _provider_summary(context.provider, plan, context.summary_intro)
-
-    state_dir = context.state_dir or (context.project_root / ".douglas" / "state")
-    markdown_dir = context.markdown_dir or (
-        context.project_root / "ai-inbox" / "planning"
-    )
-    json_path = state_dir / f"sprint_plan_{context.sprint_index}.json"
-    markdown_path = markdown_dir / f"sprint_{context.sprint_index}.md"
-
-    previous_generated_at: Optional[str] = None
-    if json_path.exists():
-        try:
-            existing_payload = json.loads(json_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing_payload = None
-        else:
-            if isinstance(existing_payload, Mapping):
                 raw_timestamp = existing_payload.get("generated_at")
+
                 if isinstance(raw_timestamp, str):
-                    previous_generated_at = raw_timestamp
+
+__all__ = ["PlanningContext", "PlanningStepResult", "run_planning", "filter_commitments"]                    previous_generated_at = raw_timestamp
 
     if previous_generated_at:
         try:
