@@ -293,28 +293,31 @@ def _provider_summary(
 
 
 def run_planning(context: PlanningContext) -> PlanningStepResult:
-    items, signature, status = _load_backlog(context.backlog_state_path)
-    fallback_used = False
-    if status in {"missing_backlog", "backlog_unreadable", "invalid_backlog"}:
-        fallback_items = _extract_fallback_items(context.backlog_fallback)
+    def _apply_fallback_if_needed(items, signature, status, fallback_payload):
+        fallback_items = _extract_fallback_items(fallback_payload)
         if fallback_items:
             items = fallback_items
             signature = SprintPlan.signature_for_items(items)
             status = "ok"
             fallback_used = True
         else:
+            fallback_used = False
+        return items, signature, status, fallback_used, bool(fallback_items)
+
+    items, signature, status = _load_backlog(context.backlog_state_path)
+    fallback_used = False
+    if status in {"missing_backlog", "backlog_unreadable", "invalid_backlog"}:
+        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(
+            items, signature, status, context.backlog_fallback
+        )
+        if not has_fallback:
             if status == "missing_backlog":
                 return PlanningStepResult(False, True, status)
             return PlanningStepResult(False, False, status)
     elif status == "empty_backlog":
-        fallback_items = _extract_fallback_items(context.backlog_fallback)
-        if fallback_items:
-            items = fallback_items
-            signature = SprintPlan.signature_for_items(items)
-            status = "ok"
-            fallback_used = True
-
-    filtered = _filter_commitments(items)
+        items, signature, status, fallback_used, has_fallback = _apply_fallback_if_needed(
+            items, signature, status, context.backlog_fallback
+        )
     selection_seed = _selection_seed(context.seed, context.sprint_index, signature)
     requested_count = max(context.items_per_sprint, 0)
     commitments = _select_commitments(
