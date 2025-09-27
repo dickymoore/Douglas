@@ -109,7 +109,11 @@ class SprintPlan:
 
     @classmethod
     def from_dict(cls, data: Mapping[str, object]) -> "SprintPlan":
-        sprint_index = int(data.get("sprint", 0) or 0)
+        sprint_raw = data.get("sprint", 0)
+        try:
+            sprint_index = int(sprint_raw or 0)
+        except (ValueError, TypeError):
+            sprint_index = 0
         commitments_raw = data.get("commitments") or []
         commitments: List[Commitment] = []
         if isinstance(commitments_raw, Sequence):
