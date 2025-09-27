@@ -109,7 +109,7 @@ def activate_offline_guard() -> None:
 def deactivate_offline_guard() -> None:
     """Restore networking primitives to their original behaviour."""
 
-    global _GUARD_ACTIVE, _ORIGINAL_SOCKET, _ORIGINAL_CREATE_CONNECTION
+    global _GUARD_ACTIVE, _ORIGINAL_SOCKET, _ORIGINAL_CREATE_CONNECTION, _ORIGINAL_SESSION_INIT
 
     with _GUARD_LOCK:
         if not _GUARD_ACTIVE:
@@ -125,6 +125,7 @@ def deactivate_offline_guard() -> None:
 
         _ORIGINAL_SOCKET = None
         _ORIGINAL_CREATE_CONNECTION = None
+        _ORIGINAL_SESSION_INIT = None
 
         _GUARD_ACTIVE = False
 

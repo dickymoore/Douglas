@@ -162,8 +162,12 @@ class CassetteStore:
         if not self.directory.exists():
             self._loaded = True
             return
+        # Sort cassette files in reverse order so that newer recordings (with higher numeric suffixes)
+        # are processed first. This ensures that newer recordings take precedence over older ones
+        # when populating the index.
+        # The sort key (_cassette_sort_key) sorts by filename prefix and numeric suffix (e.g., "foo-2" > "foo-1").
         for path in sorted(
-            self.directory.glob("*.jsonl"), key=_cassette_sort_key
+            self.directory.glob("*.jsonl"), key=_cassette_sort_key, reverse=True
         ):
             try:
                 with path.open("r", encoding="utf-8") as handle:
@@ -202,7 +206,14 @@ class CassetteStore:
                                 else None
                             ),
                         )
-                        self._index[key.as_tuple()] = data
+                        # Use setdefault to preserve the first occurrence (the newest recording,
+                        # since files are processed in reverse order) when duplicate keys are encountered.
+                        if key.as_tuple() in self._index:
+                            warnings.warn(
+                                f"Duplicate cassette key encountered: {key.as_tuple()} in file {path}. "
+                                "This may indicate a problem with cassette generation."
+                            )
+                        self._index.setdefault(key.as_tuple(), data)
             except OSError:
                 continue
         self._loaded = True

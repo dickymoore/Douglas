@@ -9,8 +9,14 @@ License-File: LICENSE
 Requires-Dist: typer>=0.9
 Requires-Dist: pyyaml>=6.0
 Requires-Dist: rich>=10.11
+Requires-Dist: fastapi>=0.110
+Requires-Dist: uvicorn>=0.22
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
+Requires-Dist: ruff>=0.1; extra == "dev"
+Requires-Dist: black>=23.0; extra == "dev"
+Requires-Dist: isort>=5.12; extra == "dev"
+Requires-Dist: mypy>=1.0; extra == "dev"
 Dynamic: license-file
 
 # Douglas
@@ -18,6 +24,47 @@ Dynamic: license-file
 Douglas is a developer-lifecycle companion that automates an AI-assisted build, test, review, and release loop for software teams. It reads a configuration file, orchestrates lint/type/test/security/demo/retro pipelines, records outcomes for each agile role, and coordinates release policies and CI monitoring.
 
 > **Status:** Douglas is not yet published on PyPI. Install from source as shown below. Codex is configured as the default provider and Douglas also recognises OpenAI chat models, Claude Code, Google Gemini, and a stubbed GitHub Copilot integration—each degrading gracefully to a local stub whenever credentials or SDKs are unavailable.
+
+## Operational upgrades
+
+Douglas now ships with tooling that turns it into an "agile team in a box":
+
+- **Parallel Codex agents** – Launch multiple Codex CLI workers safely. Each invocation is isolated in `.douglas/workspaces/<agent-id>/` and coordinated via lock files in `.douglas/locks/`. The merger agent copies generated changes back into the main repository without clobbering concurrent work.
+- **Structured logging** – A shared logging module emits colourised console output and JSON lines in `logs/douglas.log` (rotated at 10 MB × 5 files). Configure the verbosity with `DOUGLAS_LOG_LEVEL` or `--log-level`, override the log file with `DOUGLAS_LOG_FILE`, and import `douglas.logging` helpers to instrument custom agents.
+- **Live dashboard** – A FastAPI microservice (and static HTML renderer) reads `.douglas/state/`, `features/`, `inbox/`, and related folders to surface backlog totals, burn-down/burn-up metrics, and cumulative-flow trends. Start it with `douglas dashboard serve` or snapshot HTML with `douglas dashboard render`.
+- **Demo-script DSL** – Capture product tours in YAML or JSON under `.douglas/demos/`. Run them via `douglas demo run path/to/script.yaml` to execute CLI/API steps and generate an HTML+JSON report.
+
+### Offline modes
+
+Douglas can operate entirely without an external LLM by switching the AI provider mode. Three offline-capable providers ship in the box:
+
+- **Deterministic mock (`mock`)** – Generates realistic, minimal edits (backlog updates, smoke tests, helper functions) using a reproducible seed derived from the global seed, agent label, step name, and prompt hash.
+- **Replay (`replay`)** – Replays captured LLM outputs from JSONL cassettes under `.douglas/cassettes/` so the loop can run without calling a remote model.
+- **Null (`null`)** – Skips edits while still recording state entries so dashboards and history advance during smoke tests.
+
+The offline kill-switch is `DOUGLAS_OFFLINE=1`; set it in your environment or rely on the CLI to wire in a socket/HTTP guard automatically. The guard blocks outbound sockets and requests so offline jobs cannot accidentally hit the network.
+
+`douglas.yaml` accepts the following AI configuration:
+
+```yaml
+ai:
+  mode: mock        # mock | replay | null | real
+  seed: 123         # deterministic seed for mock/replay
+  replay_dir: .douglas/cassettes
+  record_cassettes: false
+```
+
+CLI overrides are available for ad-hoc runs:
+
+```bash
+douglas run --ai-mode mock --seed 123
+douglas run --ai-mode replay --cassette-dir .douglas/cassettes
+douglas run --ai-mode real --record-cassettes --seed 123
+```
+
+A sentinel file `.douglas/mock.on` forces mock mode regardless of configuration—handy for workshops or disconnected demos. See [docs/RECORDING.md](docs/RECORDING.md) for step-by-step cassette recording and replay guidance.
+
+Run the shared offline CI pipeline with `make ci-offline`, which executes `scripts/ci_offline.sh` (linters, type checks, offline-focused tests, a mock iteration, and a static dashboard render). A replay variant `scripts/ci_replay.sh` replays existing cassettes when they are committed to the repo.
 
 ## Two Ways to Use Douglas
 
@@ -284,6 +331,83 @@ The provider abstraction keeps Douglas model-agnostic:
 - `LLMProvider` is a simple interface with a `generate_code(prompt)` method and a `create_provider()` factory.[`douglas/providers/llm_provider.py`](douglas/providers/llm_provider.py)
   - `LLMProviderRegistry` parses `ai.default_provider`, `ai.providers`, and optional per-role `assignments` to deliver the right provider for each step.[`douglas/providers/provider_registry.py`](douglas/providers/provider_registry.py)
   - `CodexProvider` builds on the OpenAI transport with sensible defaults for the Codex models while degrading to a stub when credentials are missing.[`douglas/providers/codex_provider.py`](douglas/providers/codex_provider.py)
+
+### Parallel agent execution & merging
+
+Douglas' Codex integration now supports concurrent CLI sessions without trampling local state:
+
+1. Every run gets a unique workspace beneath `.douglas/workspaces/<agent-id>/`. Use `ParallelAgentExecutor` to submit work or call the Codex provider directly—the provider automatically provisions a workspace when `generate_code` shells out to the CLI.
+2. File-level coordination happens via `.douglas/locks/`. `FileLockManager.acquire()` exposes a context manager you can wrap around custom write operations when extending Douglas.
+3. After agents finish, the `MergerAgent` overlays `changes/` back into the repository while acquiring lock files for each destination path. Example:
+
+   ```python
+   from douglas.agents import MergerAgent, ParallelAgentExecutor
+
+   executor = ParallelAgentExecutor()
+   future = executor.submit(["codex", "exec", "-", "--some-flag"], metadata={"story": "ABC-123"})
+   result = future.result()
+   merger = MergerAgent(executor)
+   updated_files = merger.merge(result.agent_id)
+   print("Merged:", [str(path) for path in updated_files])
+   ```
+
+Workspaces accumulate CLI transcripts and last responses in their `changes/` folder so they can be committed or inspected later.
+
+### Structured logging utilities
+
+All Douglas components route through `douglas.logging` which configures a colourised console stream plus a JSON rotating file handler (`logs/douglas.log`, 10 MB × 5). Custom code can opt in via:
+
+```python
+from douglas.logging import configure_logging, get_logger, log_action
+
+configure_logging(level="debug")
+logger = get_logger("custom.component", metadata={"role": "Developer"})
+
+@log_action("sync-backlog", logger_factory=lambda: logger)
+def sync_backlog():
+    logger.info("Fetching backlog", extra={"metadata": {"items": 42}})
+```
+
+Set `DOUGLAS_LOG_LEVEL`, `DOUGLAS_LOG_FILE`, or `DOUGLAS_LOG_DIR` to tailor behaviour; pass `--log-level` on the CLI for ad-hoc overrides.
+
+### Dashboard & static snapshots
+
+Monitor progress in real time with the FastAPI dashboard:
+
+```bash
+# Live API + auto-refreshing HTML
+douglas dashboard serve --state-dir .
+
+# Render a static HTML bundle (saved under .douglas/dashboard/index.html by default)
+douglas dashboard render --state-dir . --output-dir .douglas/dashboard
+```
+
+The service consumes `.douglas/state/`, `features/`, `epics/`, and `inbox/` folders—no database required. The bundled HTML fallback embeds a JSON payload so it can be served from any static host.
+
+### Demo-script DSL & runner
+
+Define end-to-end demos under `.douglas/demos/` using YAML or JSON. Supported step types today:
+
+- `cli` – run shell commands and capture stdout/stderr.
+- `api` – issue HTTP requests (GET/POST/etc.) with JSON payloads.
+- `gui` – placeholder for future Playwright automation; currently records the requested script path.
+
+Example (`.douglas/demos/example_demo.yaml` ships with the repo):
+
+```yaml
+name: sample-demo
+steps:
+  - name: Show project tree
+    type: cli
+    command: ["ls", "-1"]
+  - name: Fetch root endpoint
+    type: api
+    request:
+      method: GET
+      url: "http://127.0.0.1:8001"
+```
+
+Run it via `douglas demo run .douglas/demos/example_demo.yaml`. Reports land in `.douglas/demos/reports/<demo-name>/` (both JSON and HTML).
   - `OpenAIProvider` initialises the OpenAI SDK, honours `ai.model` overrides (or `OPENAI_MODEL`) plus optional `ai.base_url`/`ai.api_key` settings, and returns real model output when credentials and the SDK are available—falling back to a local stub otherwise.[`douglas/providers/openai_provider.py`](douglas/providers/openai_provider.py)
   - `ClaudeCodeProvider`, `GeminiProvider`, and `CopilotProvider` handle Anthropic, Google, and GitHub Copilot integrations respectively, issuing warnings and deterministic placeholder output whenever SDKs or API keys are absent.[`douglas/providers/claude_code_provider.py`](douglas/providers/claude_code_provider.py) [`douglas/providers/gemini_provider.py`](douglas/providers/gemini_provider.py) [`douglas/providers/copilot_provider.py`](douglas/providers/copilot_provider.py)
 
