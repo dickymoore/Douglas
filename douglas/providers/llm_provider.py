@@ -1,11 +1,50 @@
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Mapping, Optional
+
+from douglas.domain.step_result import StepResult
 
 
 class LLMProvider(ABC):
     @abstractmethod
     def generate_code(self, prompt: str) -> str:
         pass
+
+    def generate_step_result(
+        self,
+        prompt: str,
+        *,
+        step_name: Optional[str] = None,
+        agent: Optional[str] = None,
+        role: Optional[str] = None,
+        seed: Optional[int] = None,
+        prompt_hash: Optional[str] = None,
+        timestamps: Optional[Mapping[str, Any]] = None,
+    ) -> StepResult:
+        """Return a ``StepResult`` for the given prompt."""
+
+        start = datetime.now(timezone.utc).isoformat()
+        raw_output = self.generate_code(prompt)
+        completed = datetime.now(timezone.utc).isoformat()
+        default_timestamps = {
+            "started_at": start,
+            "completed_at": completed,
+        }
+        merged_timestamps = dict(default_timestamps)
+        if timestamps:
+            merged_timestamps.update(dict(timestamps))
+        result = StepResult.ensure(
+            raw_output,
+            step_name=step_name,
+            agent=agent,
+            role=role,
+            seed=seed,
+            prompt_hash=prompt_hash,
+            prompt=prompt,
+            timestamps=merged_timestamps,
+        )
+        return result
 
     @staticmethod
     def create_provider(name: str, **options):
