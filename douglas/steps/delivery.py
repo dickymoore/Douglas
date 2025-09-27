@@ -159,7 +159,7 @@ def _resolve_stories(context: DeliveryContext) -> Iterable[DeliveryStory]:
         return
 
     stories_section = data.get("stories")
-    if not isinstance(stories_section, Sequence):
+    if not isinstance(stories_section, (list, tuple)):
         return
 
     for entry in stories_section:
