@@ -273,7 +273,7 @@ def run_planning(context: PlanningContext) -> PlanningStepResult:
                 raw_timestamp = existing_payload.get("generated_at")
                 if isinstance(raw_timestamp, str):
                     previous_generated_at = raw_timestamp
-        except (OSError, json.JSONDecodeError):  # pragma: no cover - defensive
+        except (OSError, json.JSONDecodeError):
             previous_generated_at = None
 
     if previous_generated_at:
