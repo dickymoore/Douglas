@@ -381,8 +381,8 @@ class Douglas:
         self._run_state_path = self._resolve_run_state_path()
         self._soft_stop_pending = False
         # Flag indicating whether a sprint plan refresh is pending.
-        # Set to True elsewhere in the code when a change (e.g., cadence update or external trigger)
-        # requires the sprint plan to be refreshed before the next iteration.
+        # Set to True in methods such as `update_cadence`, `trigger_sprint_plan_refresh`, or when an external
+        # event requires the sprint plan to be refreshed before the next iteration.
         self._pending_sprint_plan_refresh = False
         accountability_cfg = self.config.get("accountability", {}) or {}
         self._accountability_enabled = bool(accountability_cfg.get("enabled", True))
