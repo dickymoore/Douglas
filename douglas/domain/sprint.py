@@ -86,14 +86,6 @@ class SprintPlan:
         Returns:
             A hexadecimal digest suitable for persistence and comparisons.
         """
-        """Return a deterministic SHA-256 signature for backlog items.
-
-        The signature is used to detect when the underlying backlog changes
-        without relying on object identity or ordering. Only the normalised
-        identifier, title, status, and owner fields participate in the hash to
-        keep the digest stable across unrelated metadata updates. The return
-        value is a hexadecimal digest suitable for persistence and comparisons.
-        """
         canonical: List[Dict[str, str]] = []
         for item in items:
             if isinstance(item, Mapping):
